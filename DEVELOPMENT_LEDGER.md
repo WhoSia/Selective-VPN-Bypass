@@ -236,7 +236,7 @@
 - [`d9b5c33`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/d9b5c3394c25703a609833bee1757779dc694ac3), [`0bb9e39`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/0bb9e390aa597aec3accb5b92952a61f6159f75f) — `Test-CompatibleOwnedNrpt` 및 Namespace 조회 헬퍼 도입. 기존 규칙이 단 하나이고, Comment 정확히 일치, 네임스페이스가 정확히 한 개이며 동일 문자열, DNS 서버들의 정규화된 집합이 일치할 경우에만 **기존 규칙을 재사용하고 관리 state 파일에 Name을 기록**. 기존 규칙 제거는 하지 않음. 충돌하는 외부 규칙, 변경된 DNS 서버, 중복 규칙은 안전하게 거부.
 - [`8512f8c`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/8512f8cac9dc7379ca1f199651f2da15d117ef9b) — `tests/test-core.ps1`에 정상 자사 규칙·외부 소유권·DNS 서버 불일치·정확 일치하지 않는 Namespace·하나의 규칙이 복수 Namespace를 가진 경우에 대한 회귀 판정 추가. 실제 네트워크를 수정하지 않는 메모리 객체 검사.
 - **주의:** 관리 태그는 강한 암호학적 신원 증거가 아니라 문자열 식별자임. 다른 앱 인스턴스가 같은 규칙을 관리하는 상황은 구별 불가. 새 동작은 동일 사용자 구성의 잔존 규칙 회복을 우선하되, **소유권 및 DNS가 다르면 자동 채택하지 않는다**.
-- **검증 한계:** CI의 메모리 객체 판정이 Windows의 실제 `Add-DnsClientNrptRule`/Restore 동작까지 입증하지 않음. 실기에서 새 Portable을 받고 기존 설정을 보존한 상태로 Apply → Restore → Apply 반복해 검증할 필요가 있음. 사용자별 IP/DNS 값은 원장에 기록하지 않음.
+- **검증 결과:** [Actions #38520125595](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/38520125595) Windows PowerShell NRPT 회귀 테스트 PASS, GUI 반복 동작 PASS, Windows x64 컴파일 PASS, ZIP artifact 업로드 PASS. 아티팩트 ID `11873860690`, 이름 `SelectiveVPNBypass-Portable-Windows-x64`. **검증 한계:** CI의 메모리 객체 판정이 Windows의 실제 `Add-DnsClientNrptRule`/Restore 동작까지 입증하지 않음. 실기에서 새 Portable을 받고 기존 설정을 보존한 상태로 Apply → Restore → Apply 반복해 검증할 필요가 있음. 사용자별 IP/DNS 값은 원장에 기록하지 않음.
 - **기여 정책:** 소스 커밋은 `WhoSia` 명의, Actions는 컴파일 전용이며 봇 소스 커밋 없음.
 
 ## 열린 검증 항목
