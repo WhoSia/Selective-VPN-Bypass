@@ -1,6 +1,26 @@
 #Requires -Version 5.1
 param([string]$RuntimeDir,[string]$DataDir)
 $ErrorActionPreference = 'Stop'
+# DPI awareness must be declared before any WinForms controls are created.
+# Windows may refuse the request if the process already has a DPI context.
+try {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+internal static class SVBDpi {
+    [DllImport("user32.dll", EntryPoint="SetProcessDpiAwarenessContext", SetLastError=true)]
+    internal static extern bool SetContext(IntPtr awareness);
+    [DllImport("user32.dll", EntryPoint="SetProcessDPIAware", SetLastError=true)]
+    internal static extern bool SetLegacy();
+    internal static void BestEffort() {
+        if (!SetContext(new IntPtr(-4))) { SetLegacy(); }
+    }
+}
+'@ -ErrorAction Stop
+  [SVBDpi]::BestEffort()
+} catch {
+  # Fall back to Windows defaults; never prevent the UI from starting for DPI.
+}
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
