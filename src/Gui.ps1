@@ -246,23 +246,33 @@ exit 0
     }
   }
   try {
-    Run-Action 'add' 'example.com'; Wait-Idle 'first add'
+    # Dispatch actual Button Click events, rather than calling Run-Action directly.
+    # Reflection invokes protected OnClick without requiring an interactive desktop.
+    function Click-Button([Windows.Forms.Button]$button) {
+      $flags=[Reflection.BindingFlags]::Instance -bor [Reflection.BindingFlags]::NonPublic
+      $onClick=$button.GetType().GetMethod('OnClick',$flags)
+      if($null -eq $onClick){throw "OnClick not found: $($button.Text)"}
+      [void]$onClick.Invoke($button,@([EventArgs]::Empty))
+    }
+    $entry.Text='example.com'; Click-Button $add; Wait-Idle 'first add'
     Assert-Items @('example.com') 'first add'
-    Run-Action 'add' 'example.kr'; Wait-Idle 'second add'
-    Run-Action 'add' 'example.wiki'; Wait-Idle 'third add'
-    Run-Action 'add' '192.0.2.10'; Wait-Idle 'IPv4 add'
+    $entry.Text='example.kr'; Click-Button $add; Wait-Idle 'second add'
+    $entry.Text='example.wiki'; Click-Button $add; Wait-Idle 'third add'
+    $entry.Text='192.0.2.10'; Click-Button $add; Wait-Idle 'IPv4 add'
     Assert-Items @('example.com','example.kr','example.wiki','192.0.2.10') 'multi-add'
-    Run-Action 'remove' 'example.kr'; Wait-Idle 'remove selected'
+    $items.SelectedIndex=$items.Items.IndexOf('example.kr')
+    if($items.SelectedIndex -lt 0){throw 'Could not select item for deletion'}
+    Click-Button $remove; Wait-Idle 'remove selected'
     Assert-Items @('example.com','example.wiki','192.0.2.10') 'remove'
     for($i=0;$i -lt 3;$i++){
-      Run-Action 'apply'; Wait-Idle "apply cycle $i"
+      Click-Button ($top[1][0]); Wait-Idle "apply cycle $i"
       if($log.Text -notmatch "SIMULATED apply SUCCESS"){throw 'Simulated apply did not complete'}
-      Run-Action 'restore'; Wait-Idle "restore cycle $i"
+      Click-Button ($top[1][1]); Wait-Idle "restore cycle $i"
       if($log.Text -notmatch "SIMULATED restore SUCCESS"){throw 'Simulated restore did not complete'}
     }
-    Run-Action 'add' 'example.net'; Wait-Idle 'add after restore'
+    $entry.Text='example.net'; Click-Button $add; Wait-Idle 'add after restore'
     Assert-Items @('example.com','example.wiki','example.net','192.0.2.10') 'post-restore add'
-    Write-Output 'GUI interaction regression PASS: multi-add, remove, 3 simulated apply/restore pairs, post-restore add.'
+    Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, post-restore add.'
   }finally {
     $script:actionTimer.Stop()
     Remove-Item -LiteralPath $mock -Force -ErrorAction SilentlyContinue
