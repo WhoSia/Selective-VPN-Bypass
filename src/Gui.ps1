@@ -144,6 +144,11 @@ function Valid-Target([string]$value) {
  if($v -match '^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'){return $v}
  throw 'Enter a hostname or IPv4 address (not a URL).'
 }
+function Set-UiBusy([bool]$busy) {
+  foreach($button in @($add,$remove,$top[1][0],$top[1][1],$other[1][0],$other[1][1])){
+    $button.Enabled = -not $busy
+  }
+}
 # Single timer in GUI script scope; no GetNewClosure / separate module state.
 $script:actionTimer=New-Object Windows.Forms.Timer
 $script:actionTimer.Interval=150
@@ -172,6 +177,7 @@ $script:actionTimer.Add_Tick({
       $script:activeAction=$null
       $script:activeLogPath=$null
       $script:running=$false
+      Set-UiBusy $false
       Update-Items
       Update-Status
     }
@@ -180,9 +186,10 @@ $script:actionTimer.Add_Tick({
 function Run-Action([string]$action,[string]$target='') {
   if($script:running){
     $log.Text="Please wait: $($script:activeAction) is still running."
-    return
+    return $false
   }
   $script:running=$true
+  Set-UiBusy $true
   $script:activeAction=$action
   $script:activeStarted=[DateTime]::UtcNow
   $log.Text="Running $action ..."
@@ -202,17 +209,20 @@ function Run-Action([string]$action,[string]$target='') {
     if($null -eq $script:activeProcess){throw "Could not start $action."}
     $script:activeLogPath=$path
     $script:actionTimer.Start()
+    return $true
   }catch{
     $script:actionTimer.Stop()
     $script:running=$false
+    Set-UiBusy $false
     $script:activeAction=$null
     $script:activeProcess=$null
     $script:activeLogPath=$null
     $log.Text="Failed to start $action : $($_.Exception.Message)"
+    return $false
   }
 }
 $add.Add_Click({
- try{$v=Valid-Target $entry.Text;Run-Action 'add' $v;$entry.Clear()}
+ try{$v=Valid-Target $entry.Text;if(Run-Action 'add' $v){$entry.Clear()}}
  catch{[Windows.Forms.MessageBox]::Show($_.Exception.Message,'Invalid entry')|Out-Null}
 })
 $remove.Add_Click({if($null -ne $items.SelectedItem){Run-Action 'remove' ([string]$items.SelectedItem)}})
@@ -227,6 +237,10 @@ if ($InteractionTest) {
   @'
 param([string]$BackendPath,[string]$Action,[string]$Domain,[string]$ConfigDir,[string]$LogPath)
 Start-Sleep -Milliseconds 80
+if($Action -eq 'apply' -and $Domain -eq 'fail'){
+  "SIMULATED FAILURE" | Set-Content -LiteralPath $LogPath -Encoding UTF8
+  exit 7
+}
 "SIMULATED $Action SUCCESS" | Set-Content -LiteralPath $LogPath -Encoding UTF8
 exit 0
 '@ | Set-Content -LiteralPath $mock -Encoding UTF8
@@ -265,14 +279,26 @@ exit 0
     Click-Button $remove; Wait-Idle 'remove selected'
     Assert-Items @('example.com','example.wiki','192.0.2.10') 'remove'
     for($i=0;$i -lt 3;$i++){
-      Click-Button ($top[1][0]); Wait-Idle "apply cycle $i"
+      Click-Button ($top[1][0])
+      if($i -eq 0){
+        $entry.Text='busy.example'
+        Click-Button $add
+        if($entry.Text -ne 'busy.example'){throw 'Busy add click discarded text'}
+      }
+      Wait-Idle "apply cycle $i"
       if($log.Text -notmatch "SIMULATED apply SUCCESS"){throw 'Simulated apply did not complete'}
       Click-Button ($top[1][1]); Wait-Idle "restore cycle $i"
       if($log.Text -notmatch "SIMULATED restore SUCCESS"){throw 'Simulated restore did not complete'}
     }
+    [void](Run-Action 'apply' 'fail')
+    Wait-Idle 'failed apply worker'
+    if($log.Text -notmatch 'FAILED: apply' -or $log.Text -notmatch 'SIMULATED FAILURE'){
+      throw 'Failed worker result not displayed correctly'
+    }
+    if($script:running){throw 'Busy flag remained locked after failure'}
     $entry.Text='example.net'; Click-Button $add; Wait-Idle 'add after restore'
     Assert-Items @('example.com','example.wiki','example.net','192.0.2.10') 'post-restore add'
-    Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, post-restore add.'
+    Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, busy click, failed worker recovery, post-restore add.'
   }finally {
     $script:actionTimer.Stop()
     Remove-Item -LiteralPath $mock -Force -ErrorAction SilentlyContinue
