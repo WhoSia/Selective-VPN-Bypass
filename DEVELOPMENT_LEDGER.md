@@ -192,6 +192,20 @@
 - 이후 첫 실기 테스트: 빈 목록 → 도메인 두 개 순차 추가 → 단일 항목 삭제 → VPN ON Apply → Restore → 다시 Add·Apply. GUI가 유지되는지와 원장에 남길 민감 정보 없는 오류 메시지 확인.
 - **판정:** 반복 조작 잠금 수정과 Windows CI 검증 PASS. 실제 SoftEther 네트워크 적용은 **FIELD HOLD**.
 
+## 2026-10-14 13:41:35~13:42:33 KST — GUI 중복 클릭·실패 경로 복구 및 최종 Windows 빌드 재검증 [CI PASS / FIELD UNVERIFIED]
+
+- **관측 근거:** 사용자는 기존 EXE에서 도메인/IP 한 개만 추가 가능한 현상, Apply 후 먹통, 프로그램 재시작 및 Restore 후 재잠금을 보고. 이전에 추가한 반복 버튼 검사가 성공했지만, 워커가 실패하거나 작업 도중 추가 버튼을 클릭하는 상황에 대한 검증이 부족했다.
+- [WhoSia 커밋 `2f290ec`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/2f290ec3f9ebd68b879f245d2171c4821edb7d7f): `src/Gui.ps1`에서 `Set-UiBusy`로 작업 중 Add/Remove/Apply/Restore/Status/DNS 버튼 비활성화, 비동기 작업 잠금해제 후 재활성화. 작업 도중 추가 시 텍스트를 무조건 지우지 않고 사용자가 입력한 내용을 보존. `Run-Action`이 작업 시작 여부를 Boolean으로 알려주도록 수정.
+- 모의 워커에 실패 종료코드 `7` 경로를 추가하고, GUI가 실패를 `FAILED` 로그로 표시하며 작업 상태를 풀어 이후 새 도메인을 추가할 수 있는지 검사.
+- Windows runner의 **실제 WinForms Button.OnClick 이벤트**를 사용해 다중 Add, 선택 Remove, Apply/Restore 3쌍 반복, 작업 중 추가 시도, 실패 후 재추가를 검사했다. 여기서 Apply/Restore는 **모의 워커**이므로 실제 VPN 경로 변경이 수행되지 않았다.
+- [GitHub Actions 실행 `38512704727`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/38512704727), job `115684595541`: `success`; PowerShell 구문, 빈 목록, 도메인/IP 저장·삭제, GUI 초기화, 버튼 클릭·실패 복구, Go Windows x64 빌드, ZIP 업로드 전부 PASS.
+- 원본 로그 근거: `GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, busy click, failed worker recovery, post-restore add.` (`2026-10-14 13:42:20 KST`)
+- Actions 래퍼 artifact ID `11870107551`; 래퍼 SHA-256 `e8a237523ab7998fb1c422056f8ceaecbc156a2bbbbd5d588b53a27d279b8345`. 추출 후 Windows portable ZIP SHA-256: `c960f18fe5075d5730092ffed10e634060ff3a1880f50b7331a709633e067b59`.
+- **배포물 직접 검증:** 내부 `SelectiveVPNBypass_GUI.exe` (PE32+ x64, 1,796,096 bytes), `README.md`, `LICENSE` 확인, ZIP CRC 검사 통과. ZIP은 사용자 환경 테스트를 요구하는 CI 검증 시제품이다.
+- **귀속:** 코드 author/committer `WhoSia`; Actions에는 읽기 전용 권한만 유지하고 봇 커밋 생성하지 않음.
+- **미해결:** 실제 SoftEther VPN 연결 중 `namu.wiki` 대상 DNS/NRPT/라우팅 적용 성공률, 관리자 UAC, DPI 표시 품질, Windows에서 실제로 클릭한 뒤 복구되는지 등은 현장 실행이 필요. 네트워크 변경 자체가 실패하면 이 패치는 오류를 명확히 보여줄 뿐 성공한 라우팅으로 만들지는 않는다.
+- **다음 실기 회귀 조건:** 설정 JSON 백업 → 새 폴더에서 EXE 실행 → 도메인 2개 이상 추가 → 1개 삭제 → VPN 연결 후 Apply → Restore → 다시 Add/Apply → 각 단계 상태·경로·오류 확인. 문제가 나타나면 종료 전에 GUI 로그를 기록하되 공개 이슈에 실제 네트워크 주소를 올리지 말 것.
+
 ## 열린 검증 항목
 
 | 항목 | 기준 | 현재 판정 |
