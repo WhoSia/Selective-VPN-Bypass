@@ -231,7 +231,7 @@ function Run-Action([string]$action,[string]$target='') {
 }
 $add.Add_Click({
  try{$v=Valid-Target $entry.Text;if(Run-Action 'add' $v){$entry.Clear()}}
- catch{[Windows.Forms.MessageBox]::Show($_.Exception.Message,'Invalid entry')|Out-Null}
+ catch{if($InteractionTest){throw}else{[Windows.Forms.MessageBox]::Show($_.Exception.Message,'Invalid entry')|Out-Null}}
 })
 $remove.Add_Click({if($null -ne $items.SelectedItem){Run-Action 'remove' ([string]$items.SelectedItem)}})
 # Keyboard UX: Enter in input adds, Delete on selected list item removes.
