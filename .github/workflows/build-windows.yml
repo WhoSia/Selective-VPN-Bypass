@@ -42,8 +42,11 @@ jobs:
           go build -trimpath -ldflags='-H windowsgui -s -w' -o SelectiveVPNBypass_GUI.exe .
           if ($LASTEXITCODE -ne 0) { throw "Go build failed" }
           if (-not (Test-Path SelectiveVPNBypass_GUI.exe)) { throw "EXE was not created" }
-          Compress-Archive -Path SelectiveVPNBypass_GUI.exe, README.md -DestinationPath SelectiveVPNBypass_Portable_Windows_x64.zip -Force
+          Compress-Archive -Path SelectiveVPNBypass_GUI.exe, README.md, LICENSE -DestinationPath SelectiveVPNBypass_Portable_Windows_x64.zip -Force
           if (-not (Test-Path SelectiveVPNBypass_Portable_Windows_x64.zip)) { throw "ZIP was not created" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $names = @([IO.Compression.ZipFile]::OpenRead((Resolve-Path SelectiveVPNBypass_Portable_Windows_x64.zip)).Entries | ForEach-Object FullName)
+          foreach ($required in @('SelectiveVPNBypass_GUI.exe', 'README.md', 'LICENSE')) { if ($names -notcontains $required) { throw "Missing required ZIP entry: $required" } }
           Write-Output ('SHA256 ' + (Get-FileHash SelectiveVPNBypass_Portable_Windows_x64.zip -Algorithm SHA256).Hash)
       - uses: actions/upload-artifact@v4
         with:
