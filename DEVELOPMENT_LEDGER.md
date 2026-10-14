@@ -141,6 +141,18 @@
 
 ---
 
+## 2026-10-14 13:12:12~13:13:36 KST — Windows Actions #10 최초 검증 확정 [CI PASS / FIELD UNVERIFIED]
+
+- **검증 소스:** [Actions run #10](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/38510172616), `main`의 커밋 `052f8104c876328ac7e20cbd70441585d8edee59`. 사용자 대화의 'Actions 결과가 나왔다'는 관측과 독립적으로 GitHub Run API, Job API, 실제 로그, Artifact API를 대조했다.
+- **Run:** ID `38510172616`, job ID `115676624546`, 결론 `success`, 작성·트리거 사용자 `WhoSia`. Workflow 단계: checkout PASS, Go 설치 PASS, `tests/test-core.ps1` PASS, WinForms 초기화 SmokeTest PASS, `go vet`·Windows x64 컴파일 PASS, Artifact upload PASS.
+- **테스트 로그에 실제 포함된 성공 문구:** `PowerShell syntax PASS.`; `Empty defaults, domain/IP add, case normalization, persistence, remove and rejection PASS.`; `GUI controls initialization PASS (no interactive display or DPI test).`
+- **빌드 파일:** `SelectiveVPNBypass_GUI.exe` (Windows x64 PE), EXE와 README를 묶은 `SelectiveVPNBypass_Portable_Windows_x64.zip`. ZIP 내부 목록을 별도 다운로드 후 직접 점검했다.
+- **Windows portable ZIP SHA-256:** `9d3d8bb75e731a8611eb46c3c321ea37e404c8477bea74c9b8e06acdacf9fd84`. Actions Artifact 래퍼 ZIP의 별도 SHA-256: `4daf3b0a12445a03fc57cc3931cac8486c91db4f37f16f0aa6ff886a15716829` (아티팩트 ID `11868954106`).
+- **코드 작성자 귀속:** Source 커밋의 `author`/`committer`가 `WhoSia`임을 별도 확인. Runner의 `github-actions[bot]`는 새 소스 커밋을 수행하지 않았다. Workflow는 `permissions: contents: read` 유지.
+- **판정:** **CI PASS / PE+ZIP VERIFIED.** 단, UI의 실제 시각적 선명도(100~200% DPI), 마우스 클릭 후 삭제 선택 동작, SoftEther 네트워크 `apply`/`restore`, DNS 정책 충돌, 실제 공인 출구 검증은 CI에서 수행되지 않았다. 이 범위를 **FIELD UNVERIFIED**로 유지.
+- **동기화 기준:** Run #10 이후 수정은 README와 DEVELOPMENT_LEDGER 문서 커밋이며, 빌드에 임베드된 `main.go`, `src/*`, `go.mod`의 내용은 동일하다. 따라서 정본 소스와 배포 PE 내용 불일치로 표현하지 않는다.
+- **다음 결정:** CI 아티팩트를 내려받을 수 있게 공개하되 안정성 전체를 단정하는 'production certified' 문구는 사용하지 않음. 추후 실기 검증 증거를 획득하면 새로운 시각 항목을 **추가**하여 판정한다.
+
 ## 열린 검증 항목
 
 | 항목 | 기준 | 현재 판정 |
