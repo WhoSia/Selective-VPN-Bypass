@@ -214,7 +214,7 @@
 - [`e118005`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/e11800533d1500b158bbc8ca6d9ba6ea76d6ceed): headless 검사 도중 잘못된 입력 대화상자가 runner를 가로막지 않도록 테스트 전용 실패 처리 강화.
 - [`d037a06`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/d037a06cd4e44044773a92bb4719f0914486c020): 강제 키 이벤트 검사 제거. 실제 GUI의 단축키 동작은 유지.
 - [`e64ea6f`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/e64ea6f7cd9a51855abc3de8a29b43666ea932c9): 폼 핸들 생성 전 `BeginInvoke`를 호출하지 않도록 포커스 복귀를 보호. 실제 GUI에서는 작업 종료 후 입력창 포커스 복귀 의도를 보존.
-- CI 판정: 새 커밋에 대한 Windows PowerShell 구문·기존 목록/버튼 회귀 테스트의 결과와 패키지 빌드 성공 여부를 Actions에서 별도 확인해야 한다. 대화 출력 시점에 확인되지 않은 단계는 PASS로 표기하지 않는다.
+- CI 판정: [Actions run 38514015240](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/38514015240), 코드 커밋 `e64ea6f` — Windows PowerShell 구문/목록 회귀, WinForms 초기화, 반복 Add/Remove/모의 Apply/Restore, Windows EXE 빌드, ZIP 업로드 전부 PASS. 아티팩트 이름 `SelectiveVPNBypass-Portable-Windows-x64`, ID `11870069392`. 단축키의 실제 물리 키 입력과 DPI는 별도 실기 미검증.
 - **잔여 실기 UX 검증:** 입력창에 타이핑한 뒤 Enter → 여러 도메인 추가, 목록 선택 Delete → 해당 항목만 삭제, 입력창 Escape → 비우기, 실제 모니터에서 포커스 및 키보드 접근성. 이 기능들은 배포 환경에서 직접 누르는 테스트가 아직 없음.
 - WhoSia 계정으로만 소스 커밋 작성. CI `contents: read` 유지; GitHub Actions[bot] 커밋 없음.
 
