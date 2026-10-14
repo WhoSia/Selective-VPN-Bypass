@@ -206,6 +206,18 @@
 - **미해결:** 실제 SoftEther VPN 연결 중 `namu.wiki` 대상 DNS/NRPT/라우팅 적용 성공률, 관리자 UAC, DPI 표시 품질, Windows에서 실제로 클릭한 뒤 복구되는지 등은 현장 실행이 필요. 네트워크 변경 자체가 실패하면 이 패치는 오류를 명확히 보여줄 뿐 성공한 라우팅으로 만들지는 않는다.
 - **다음 실기 회귀 조건:** 설정 JSON 백업 → 새 폴더에서 EXE 실행 → 도메인 2개 이상 추가 → 1개 삭제 → VPN 연결 후 Apply → Restore → 다시 Add/Apply → 각 단계 상태·경로·오류 확인. 문제가 나타나면 종료 전에 GUI 로그를 기록하되 공개 이슈에 실제 네트워크 주소를 올리지 말 것.
 
+## 2026-10-14 (GitHub 커밋 시각 기준) — 키보드 중심 예외 관리 UX 추가 [COMMITTED / CI TESTING]
+
+- 사용자 요구: Add 버튼을 마우스로 누르지 않고 입력창에서 Enter만으로 도메인/IP 추가. 함께 예외 목록에서 선택 후 Delete, 입력창 Escape 초기화, 작업 완료 후 입력창 포커스 복귀를 추가.
+- [`0cba8e0`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/0cba8e0032d7079b062db0499a0048fed6e292ba): `src/Gui.ps1`에 입력창 `KeyDown` Enter → Add, 목록 Delete → Remove, 입력창 Escape → Clear 등록. 처리된 키 입력은 기본 알림음을 방지. 선택이 없으면 Remove 비활성화, 작업 도중 중복 조작 방지 및 텍스트 유지.
+- CI 환경의 화면 없는 WinForms 컨트롤에 실제 키 입력 이벤트를 강제하는 테스트는 중단될 수 있음이 관측되어, 해당 비대화형 이벤트 테스트는 배포 게이트로 채택하지 않음. 키보드 조작은 실제 Windows 데스크톱에서 별도 확인이 필요.
+- [`e118005`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/e11800533d1500b158bbc8ca6d9ba6ea76d6ceed): headless 검사 도중 잘못된 입력 대화상자가 runner를 가로막지 않도록 테스트 전용 실패 처리 강화.
+- [`d037a06`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/d037a06cd4e44044773a92bb4719f0914486c020): 강제 키 이벤트 검사 제거. 실제 GUI의 단축키 동작은 유지.
+- [`e64ea6f`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/e64ea6f7cd9a51855abc3de8a29b43666ea932c9): 폼 핸들 생성 전 `BeginInvoke`를 호출하지 않도록 포커스 복귀를 보호. 실제 GUI에서는 작업 종료 후 입력창 포커스 복귀 의도를 보존.
+- CI 판정: 새 커밋에 대한 Windows PowerShell 구문·기존 목록/버튼 회귀 테스트의 결과와 패키지 빌드 성공 여부를 Actions에서 별도 확인해야 한다. 대화 출력 시점에 확인되지 않은 단계는 PASS로 표기하지 않는다.
+- **잔여 실기 UX 검증:** 입력창에 타이핑한 뒤 Enter → 여러 도메인 추가, 목록 선택 Delete → 해당 항목만 삭제, 입력창 Escape → 비우기, 실제 모니터에서 포커스 및 키보드 접근성. 이 기능들은 배포 환경에서 직접 누르는 테스트가 아직 없음.
+- WhoSia 계정으로만 소스 커밋 작성. CI `contents: read` 유지; GitHub Actions[bot] 커밋 없음.
+
 ## 열린 검증 항목
 
 | 항목 | 기준 | 현재 판정 |
