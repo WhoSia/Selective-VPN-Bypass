@@ -120,14 +120,55 @@ switch($Action){
   break
  }
  'dns'{
-  $a=Adapter $WifiAlias;$servers=@(Wifi-Dns $a.ifIndex)
+  # Read-only, no changes to DNS, default route, or VPN.
+  $wifi=Adapter $WifiAlias
+  $servers=@(Wifi-Dns $wifi.ifIndex)
   $names=if($Domain){@(Normalize-Target $Domain)}else{@(Targets)}
+  $st=State
   foreach($n in $names){
-   if(Is-IPv4 $n){Write-Output "$n : direct IPv4 entry";continue}
-   foreach($server in $servers){
-    try{Write-Output ("$n @ $server -> "+((@(Lookup $n $server)) -join ', '))}
-    catch{Write-Warning "$n DNS lookup failed: $_"}
+   Write-Output "Diagnostic: $n"
+   $ips=@()
+   if(Is-IPv4 $n){$ips=@($n)}
+   else{
+    foreach($server in $servers){
+     try{
+      $a=@(Lookup $n $server)
+      $ips+=$a
+      Write-Output ("Wi-Fi DNS A @ $server : "+($a -join ', '))
+     }catch{Write-Warning ("Wi-Fi DNS A lookup failed: "+$_)}
+    }
+    try{
+     $systemA=@(Resolve-DnsName -Name $n -Type A -DnsOnly -ErrorAction Stop|
+       Where-Object{$_.Type -eq 'A' -and $_.Section -eq 'Answer' -and $_.IPAddress}|
+       Select-Object -ExpandProperty IPAddress -Unique)
+     Write-Output ("Windows resolver A: "+($systemA -join ', '))
+     $diff=@($systemA|Where-Object{$ips -notcontains $_})
+     if($diff.Count){Write-Warning ("Windows A addresses missing from Wi-Fi lookup: "+($diff -join ', '))}
+    }catch{Write-Warning ("Windows resolver A failed: "+$_)}
+    try{
+     $v6=@(Resolve-DnsName -Name $n -Type AAAA -DnsOnly -ErrorAction Stop|
+       Where-Object{$_.Type -eq 'AAAA' -and $_.Section -eq 'Answer' -and $_.IPAddress}|
+       Select-Object -ExpandProperty IPAddress -Unique)
+     if($v6.Count){Write-Warning ("IPv6 AAAA addresses exist but IPv6 bypass is unsupported: "+($v6 -join ', '))}
+     else{Write-Output 'AAAA: none returned'}
+    }catch{Write-Output 'AAAA: none returned or lookup unavailable'}
    }
+   foreach($ip in @($ips|Sort-Object -Unique)){
+    $prefix="$ip/32"
+    $owned=$false
+    if($st){$owned=(@($st.routes|Where-Object{$_.prefix -eq $prefix}).Count -gt 0)}
+    $matches=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue|
+       Where-Object{$_.DestinationPrefix -eq $prefix})
+    if(!$matches.Count){Write-Warning ("No /32 route for "+$ip+"; default route may be used.")}
+    foreach($route in $matches){
+     Write-Output ("Route "+$prefix+" interface="+$route.InterfaceAlias+" gateway="+$route.NextHop+" ownedRecord="+$owned)
+    }
+    try{
+     $chosen=Find-NetRoute -RemoteIPAddress $ip -ErrorAction Stop
+     if($chosen){Write-Output ("Selected route for "+$ip+": "+(($chosen|Out-String -Width 200).Trim()))}
+    }catch{Write-Warning ("Selected route lookup unavailable for "+$ip+": "+$_)}
+   }
+   Write-Output 'Browser DoH, existing sockets and site-side VPN checks are not observable here.'
   };break
  }
  'restore'{Require-Admin;Restore-Own;break}
