@@ -187,7 +187,7 @@ $script:actionTimer.Add_Tick({
       Set-UiBusy $false
       Update-Items
       Update-Status
-      if($script:activeAction -eq $null -and -not $form.IsDisposed){$form.BeginInvoke([Action]{if($entry.Enabled){$entry.Focus()}}) | Out-Null}
+      if($form.IsHandleCreated -and -not $form.IsDisposed -and -not $InteractionTest){$form.BeginInvoke([Action]{if($entry.Enabled){$entry.Focus()}}) | Out-Null}
     }
   }
 })
