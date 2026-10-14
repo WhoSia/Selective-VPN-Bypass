@@ -165,6 +165,33 @@
 - **판정:** GitHub 기반 자동 빌드 및 다운로드 가능한 ZIP 완성. **Windows 실기 GUI 가독성, Add/Remove 실제 클릭, Apply/Restore 후 네트워크 통신·복구는 아직 실기 증거 미확보.** 따라서 '전체 기능 production proven'이라고 서술하지 않는다.
 - **배포 방식:** GitHub Actions artifact에서 portable ZIP 내려받기, 또는 확인된 동일 바이트의 아티팩트를 제공. Github Actions[bot]가 커밋·태그·릴리스를 발행하도록 구성하지 않는다.
 
+## 2026-10-14 13:37~13:39 KST — GUI 두 번째 입력·Apply/Restore 먹통 수정 및 버튼 이벤트 반복 검증 [OBSERVED / CI PASS / FIELD HOLD]
+
+### 재현 증상 및 원인
+- 사용자 Windows에서 예외 목록에 첫 도메인을 추가한 뒤 두 번째 도메인/IP 추가가 되지 않고, Apply 뒤 작업이 멈추며 프로그램 재시작 후 Restore가 한 번 작동했다가 또 멈추는 현상이 보고되었다.
+- 기존 `src/Gui.ps1`의 타이머 콜백은 `GetNewClosure()`를 사용하고 종료 후 `$script:running = $false`를 기록했다. 해당 콜백의 스크립트 범위가 본체와 달라질 수 있어 **본체가 읽는 실행 잠금 플래그가 해제되지 않을 위험**이 있었다.
+- 장애 원인은 이 스코프 분리 문제가 가장 유력하지만 사용자의 이전 프로세스 메모리 덤프가 없어 단일 원인으로 단정하지 않는다.
+- 테스트 결함: 과거 GUI 스모크 테스트는 컨트롤이 존재하는지만 검사했으며, 한 번 작동한 이후에도 입력·삭제·복구 버튼을 누를 수 있는지 검증하지 않았다.
+
+### 패치
+- [`789e151`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/789e151b18bac75598eabe2429557d51770df4c7) — `src/Gui.ps1`에서 `GetNewClosure()` 제거. GUI 본체가 소유하는 단일 WinForms 타이머와 `$script:activeProcess`, `$script:activeLogPath`, `$script:activeAction`, `$script:running`으로 완료 여부를 추적하도록 변경. 완료·실패 시 자원 정리, 사용자 로그 표시, 목록·연결 상태 갱신. 오래 실행되는 작업 중에도 진행 시간을 표시.
+- [`1cd09df`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/1cd09dfbd11e4c2de32d5f399242c598f7abfcaf) — GitHub Actions에 WinForms 반복 동작 테스트를 신규 게이트로 추가. 오프라인 모의 워커로 Apply/Restore를 실행해 실제 VPN·라우팅은 변경하지 않음.
+- [`c927c0e`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/c927c0eb411b2c092dba8a318063faf4b62000c7) — 더 강한 UI 테스트: 실제 WinForms `Button.OnClick` 이벤트를 호출해 도메인·IPv4 4개 연속 추가, 선택된 항목만 삭제, Apply → Restore 3회 반복, 이후 도메인 재추가를 확인. 직접 `Run-Action`만 호출하는 종전 검사에서 벗어남.
+
+### 자동화 검증 증거
+- [Windows Actions 실행 #38512413831](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/38512413831), source HEAD `c927c0eb411b2c092dba8a318063faf4b62000c7`, job ID `115683676095`.
+- 원본 로그: `PowerShell syntax PASS.`, `GUI controls initialization PASS (no interactive display or DPI test).`, `GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, post-restore add.`
+- 회귀 테스트, GUI 초기화, 반복 버튼 이벤트 검사, Go Windows x64 컴파일, ZIP 아티팩트 업로드 **모두 PASS**.
+- [GitHub artifact ID `11870930913`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/38512413831): ZIP 래퍼 SHA-256 `6bc3d91cc03e48ce6fff05d675b7bfd0115548e4d3796711a06ba8edb2898c7d`.
+- 추출된 **실행용 ZIP SHA-256:** `a86703a0bac8257f237c9a9f24196fdcea6ee67043c1efa58f3ceb6292fc2ef6`. 내부 `SelectiveVPNBypass_GUI.exe`, `README.md`, `LICENSE` 존재 및 ZIP CRC 검사 PASS.
+- Source 커밋 author/committer `WhoSia`. Actions 워크플로는 여전히 `contents: read`, 봇 커밋 없음.
+
+### 한계·잔여 위험
+- 자동 검사는 Windows runner에서 **인터랙션 이벤트 및 비동기 잠금 해제**를 검증했으나, 실제 사용자 PC의 화면·DPI 선명도, UAC 승인, SoftEther 연결, Wi-Fi DNS 및 NRPT 적용, 실제 경로와 응답, 롤백 완결성을 검증하지 못했다.
+- 사용자 PC의 이전 EXE에 저장된 예외 JSON과 관리 상태는 자동 삭제하지 않는다. 새 버전은 ZIP을 별도 폴더에 풀어 테스트한 뒤 설정을 필요한 경우에만 수동 이전하도록 안내.
+- 이후 첫 실기 테스트: 빈 목록 → 도메인 두 개 순차 추가 → 단일 항목 삭제 → VPN ON Apply → Restore → 다시 Add·Apply. GUI가 유지되는지와 원장에 남길 민감 정보 없는 오류 메시지 확인.
+- **판정:** 반복 조작 잠금 수정과 Windows CI 검증 PASS. 실제 SoftEther 네트워크 적용은 **FIELD HOLD**.
+
 ## 열린 검증 항목
 
 | 항목 | 기준 | 현재 판정 |
