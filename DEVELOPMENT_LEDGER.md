@@ -141,3 +141,32 @@
 ```
 
 **운영 원칙:** 실패를 성공으로 소급 표기하지 않는다. 구버전 오류는 삭제하지 않고 새 시각의 정정 항목을 추가한다. 필요 시 원장 길이에 따라 연도·월별 파일로 분할하되, 최초 정본은 이 파일을 유지한다.
+
+---
+
+## 2026-10-14 13:09~13:13 KST — CI 회귀 검증 체계 구축 및 WinForms DPI 초기화 보완 [COMMITTED / UNVERIFIED]
+
+### 문제 배경
+- 앞선 시제품에서 실제 관측된 화면 흐림, 컨트롤 미표시, 입력 삭제 실패, 개인 설정 자동 가져오기 등의 재발을 방지할 검증 게이트가 부족했다.
+- 이전 자동 빌드는 소스 파싱·기초 동작 검증 없이 EXE·ZIP을 생성할 수 있는 구조였다. **빌드 성공만으로 실제 UI가 동작한다고 말할 수 없다.**
+- 사용자는 Actions 결과가 생성됐다고 보고했으나, 현재 연결된 GitHub API가 제공하는 조회는 일반 push 실행의 상세 run 상태를 반환하지 않았다. **빌드 결과를 성공으로 추정하지 않는다.**
+
+### 실제 수정과 GitHub 커밋
+- [`ce695b3`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/ce695b33ce763549a16732ca63fe2abff4b12773) — `tests/test-core.ps1` 신규 추가. Windows PowerShell 파서 검사, 빈 초기 목록, `.com/.kr/.wiki` 입력, 문서용 IPv4 입력, 대소문자 정규화, 중복 제거, JSON 지속성, 목록에서 한 항목만 삭제하기, URL·와일드카드·잘못된 IP 거부를 각각 검사. 테스트 데이터는 임시 디렉터리에만 저장하며 실제 네트워크 경로를 변경하지 않는다.
+- [`68bc70d`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/68bc70d9b927b38d4c193930f6526f33c1f821e9) — CI에 PowerShell 회귀 테스트 및 `go vet`, Go 컴파일·ZIP 존재·SHA-256 출력을 추가. `tests/**` 변경도 CI 트리거에 포함.
+- [`419981f`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/419981f87f40471d5b930d4bc081b00a9347a0a6) — WinForms 초기화 전에 Windows DPI awareness 컨텍스트 설정을 *시도*하도록 P/Invoke 추가. OS/호스트 정책상 설정 거부 시 GUI 기동 자체를 막지 않도록 실패 허용. **이것이 DPI 흐림 해소를 입증하지는 않는다.**
+- [`6c2230d`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/6c2230daa2caf6295b6fc5d49b124e8477c8d544) — `Gui.ps1`에 `-SmokeTest` 추가. 폼을 실제로 띄우지 않고 컨트롤 구성·빈 초기 목록을 검사하는 진입점. 자동화된 UI 초기화 검사와 실제 사용자 클릭·화면 렌더링 검사를 분리.
+- [`052f810`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/052f8104c876328ac7e20cbd70441585d8edee59) — Windows runner의 별도 단계에서 비대화형 WinForms 초기화 검사를 수행하고, 실패하면 후속 portable 빌드 단계로 진행하지 않도록 구성.
+
+### 안전성·개방성
+- GitHub Actions의 `permissions: contents: read` 유지. 자동 커밋·자동 태그·자동 릴리스 추가 없음.
+- 커밋은 GitHub 연결의 `WhoSia` 계정으로 수행. 외부 기여자의 독립 저자 표기를 변경하지 않음.
+- 기본 JSON에 사용자별 도메인·IP 설정을 하드코딩하지 않음. 테스트용 IPv4는 RFC 5737 문서 예제 대역을 사용.
+- 시험은 관리자 권한이나 실제 SoftEther/학교 네트워크에 의존하지 않도록 분리.
+
+### 검증 판정
+- **COMMITTED:** 신규 회귀 테스트, GUI 초기화 스모크 테스트, 빌드 게이트, DPI 처리 코드.
+- **LOCAL CHECK (LIMITED):** 제작 환경의 *이전 로컬 스냅샷*에서 Windows x64 PE 교차 컴파일은 성공했으나, 이 결과는 최신 GitHub HEAD에 대한 검증이 아니다.
+- **UNVERIFIED:** 새 Actions 워크플로의 실제 PASS/FAIL, 출력 ZIP의 정확성, 사용자 Windows GUI DPI·입력·삭제 동작, 관리자 승인 및 Apply/Restore 복구.
+- **NEXT:** 실행 URL 또는 run ID 확보 → Actions job/step 로그 조회 → 실패한 정확한 테스트만 수정 → 사용자 Windows에서 빈 설정·추가·선택 삭제·저장 재실행·해상도별 표시 확인 → 별도 승인 전까지 Preview Release 보류.
+
