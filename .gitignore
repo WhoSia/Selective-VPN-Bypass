@@ -1,0 +1,8 @@
+*.exe
+*.zip
+*.log
+*.tmp
+/dist/
+Selective-VPN-Bypass.domains.json
+Selective-VPN-Bypass_v3.state.json
+Selective-VPN-Bypass.state.json
