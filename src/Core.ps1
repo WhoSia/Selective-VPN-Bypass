@@ -74,7 +74,7 @@ function Lookup([string]$name,[string]$server){
 function Test-CompatibleOwnedNrpt($rule,[string]$namespace,[string[]]$servers){
  if($null -eq $rule){return $false}
  if([string]$rule.Comment -cne $OwnerComment){return $false}
- if(@($rule.Namespace).Count -ne 1 -or [string]@($rule.Namespace)[0] -cne $namespace){return $false}
+ if(@($rule.Namespace).Count -ne 1 -or [string](@($rule.Namespace)[0]) -cne $namespace){return $false}
  $actual=@($rule.NameServers|ForEach-Object{[string]$_}|Sort-Object -Unique)
  $expected=@($servers|ForEach-Object{[string]$_}|Sort-Object -Unique)
  return (($actual -join '|') -ceq ($expected -join '|'))
