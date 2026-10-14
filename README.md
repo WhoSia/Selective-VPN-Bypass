@@ -1,37 +1,46 @@
 # Selective VPN Bypass
 
-Portable Windows x64 companion for SoftEther VPN Client. **The default exception list is empty**: no personal network IPs or domain preferences are shipped.
+A lightweight **portable Windows companion for SoftEther VPN Client**, developed openly in this repository.
+
+> **Preview / experimental:** Not yet tested end-to-end on Windows with live VPN connections. Network rules can affect connectivity.
 
 ## Download
 
-- **Releases:** download `SelectiveVPNBypass_Portable_Windows_x64.zip` for tagged versions.
-- **Actions → Build Windows portable:** after a successful run, download the portable ZIP from Artifacts (sign-in required).
-- **Code → Download ZIP** downloads repository **source code**, not the built EXE.
+**Windows executable:** Open [Actions](../../actions/workflows/build-windows.yml), select a successful **Build Windows portable** run and download the `SelectiveVPNBypass-Portable-Windows-x64` artifact. Extract it and run `SelectiveVPNBypass_GUI.exe`. GitHub login may be required for Actions artifacts.
 
-Extract the portable ZIP and double-click `SelectiveVPNBypass_GUI.exe`. Python and Qt are not required. The executable is unsigned.
+**Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
 ## Features
 
-- Maintain domain or IPv4 exception lists.
-- Apply and restore Wi-Fi-directed IPv4 routes alongside SoftEther VPN.
-- Query Wi-Fi DNS and inspect connection status.
-- Tag managed Windows NRPT entries for cleanup.
-- Do not alter SoftEther's default VPN route or Tailscale; refuse unmanaged /32 route conflicts.
+- Empty default exception list; add and remove domains (including .kr/.wiki) or IPv4 addresses.
+- Local-only JSON configuration stored alongside the EXE; **never automatically imports a previous user's settings**.
+- Status, Wi-Fi DNS lookup, Apply and Restore actions.
+- Uses Windows PowerShell 5.1 built into Windows; no Python/Qt installation needed.
+- Windows UAC approval is requested for Apply/Restore; ordinary list editing does not require elevation.
+- Build is automated, but the workflow **never creates commits or releases**.
 
-## Build
+## Architecture
 
-Go 1.22 or later on Windows:
+Go executable embeds three PowerShell sources: `src/Gui.ps1` (WinForms UI), `src/Core.ps1` (validation/routing), `src/Worker.ps1` (command worker). This is **not** yet a native Go UI toolkit. A fully modern high-DPI interface is a future improvement; the preview uses DPI-scaled layout and needs real-world display testing.
+
+## Build from source
+
+With Go 1.22+ on Windows, run:
 
 ```powershell
-$env:GOOS='windows'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
+$env:GOOS='windows'
+$env:GOARCH='amd64'
+$env:CGO_ENABLED='0'
 go build -trimpath -ldflags='-H windowsgui -s -w' -o SelectiveVPNBypass_GUI.exe .
-Compress-Archive -Path SelectiveVPNBypass_GUI.exe, README.md -DestinationPath SelectiveVPNBypass_Portable_Windows_x64.zip -Force
+Compress-Archive -Path SelectiveVPNBypass_GUI.exe,README.md -DestinationPath SelectiveVPNBypass_Portable_Windows_x64.zip -Force
 ```
 
-The GitHub Actions workflow builds on pushes to main; `v*` tags publish a GitHub Release ZIP.
+## Safety and limitations
 
-## Limitations and safety
+IPv4 DNS-based routing is **not guaranteed domain isolation**: browser DoH, IPv6, QUIC, DNS changes and shared CDN IPs may affect routing. Unmanaged conflicting routes must not be overwritten. The user's VPN default route and Tailscale configuration are not deliberately modified. Use this utility only on networks you are authorized to administer and keep an independent network recovery method available.
 
-**Preview build:** Windows GUI and route behavior require device testing. DNS snapshots, browser DoH, IPv6, QUIC, and shared CDN IPs can undermine strict domain isolation. Use only on networks you are authorized to configure.
+Do not include your real local/public IP addresses, private domains or personal exceptions in GitHub issues, screenshots, source commits or logs.
 
-Do **not** commit local `Selective-VPN-Bypass.domains.json`, `*.state.json`, logs, or private IPs. Config starts empty and remains local.
+## Open source contributions
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under [MIT](LICENSE). Maintainer changes are committed as **WhoSia**; no GitHub Actions[bot] commits.
