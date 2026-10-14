@@ -3,7 +3,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['main.go', 'go.mod', 'src/**', '.github/workflows/build-windows.yml']
+    paths:
+      - 'main.go'
+      - 'go.mod'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/build-windows.yml'
 permissions:
   contents: read
 jobs:
@@ -14,15 +19,25 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Build
+      - name: Windows PowerShell regression tests
+        shell: pwsh
+        run: |
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tests\test-core.ps1
+          if ($LASTEXITCODE -ne 0) { throw "PowerShell regression tests failed: $LASTEXITCODE" }
+      - name: Compile Windows x64
         shell: pwsh
         run: |
           $env:GOOS='windows'
           $env:GOARCH='amd64'
           $env:CGO_ENABLED='0'
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw "go vet failed" }
           go build -trimpath -ldflags='-H windowsgui -s -w' -o SelectiveVPNBypass_GUI.exe .
-          if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
+          if ($LASTEXITCODE -ne 0) { throw "Go build failed" }
+          if (-not (Test-Path SelectiveVPNBypass_GUI.exe)) { throw "EXE was not created" }
           Compress-Archive -Path SelectiveVPNBypass_GUI.exe, README.md -DestinationPath SelectiveVPNBypass_Portable_Windows_x64.zip -Force
+          if (-not (Test-Path SelectiveVPNBypass_Portable_Windows_x64.zip)) { throw "ZIP was not created" }
+          Write-Output ('SHA256 ' + (Get-FileHash SelectiveVPNBypass_Portable_Windows_x64.zip -Algorithm SHA256).Hash)
       - uses: actions/upload-artifact@v4
         with:
           name: SelectiveVPNBypass-Portable-Windows-x64
