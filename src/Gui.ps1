@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-param([string]$RuntimeDir,[string]$DataDir,[switch]$SmokeTest)
+param([string]$RuntimeDir,[string]$DataDir,[switch]$SmokeTest,[switch]$InteractionTest)
 $ErrorActionPreference = 'Stop'
 # DPI awareness must be declared before any WinForms controls are created.
 # Windows may refuse the request if the process already has a DPI context.
@@ -29,6 +29,10 @@ $worker=Join-Path $RuntimeDir 'Worker.ps1'
 $config=Join-Path $DataDir 'Selective-VPN-Bypass.domains.json'
 $state=Join-Path $DataDir 'Selective-VPN-Bypass_v3.state.json'
 $script:running=$false
+$script:activeProcess=$null
+$script:activeLogPath=$null
+$script:activeAction=$null
+$script:activeStarted=$null
 $form=New-Object Windows.Forms.Form
 $form.Text='Selective VPN Bypass - Preview'
 $form.Size=New-Object Drawing.Size(780,560)
@@ -140,31 +144,72 @@ function Valid-Target([string]$value) {
  if($v -match '^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'){return $v}
  throw 'Enter a hostname or IPv4 address (not a URL).'
 }
+# Single timer in GUI script scope; no GetNewClosure / separate module state.
+$script:actionTimer=New-Object Windows.Forms.Timer
+$script:actionTimer.Interval=150
+$script:actionTimer.Add_Tick({
+  if(-not $script:running -or $null -eq $script:activeProcess){return}
+  try {
+    if(-not $script:activeProcess.HasExited){
+      $elapsed=[int]([DateTime]::UtcNow-$script:activeStarted).TotalSeconds
+      if($elapsed -ge 4){$log.Text="Running $($script:activeAction) ($elapsed s)... The window is responsive."}
+      return
+    }
+    $exitCode=$script:activeProcess.ExitCode
+    if(Test-Path -LiteralPath $script:activeLogPath){
+      $output=Get-Content -LiteralPath $script:activeLogPath -Raw -ErrorAction Stop
+      if($exitCode -eq 0){$log.Text="Completed: $($script:activeAction)"+[Environment]::NewLine+$output}
+      else{$log.Text="FAILED: $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+$output}
+    }else{$log.Text="FAILED: No result log for $($script:activeAction) (exit $exitCode)"}
+  }catch{
+    $log.Text="Worker completion error: $($_.Exception.Message)"
+  }finally{
+    if($script:activeProcess.HasExited){
+      $script:actionTimer.Stop()
+      try{$script:activeProcess.Dispose()}catch{}
+      if($script:activeLogPath){Remove-Item -LiteralPath $script:activeLogPath -Force -ErrorAction SilentlyContinue}
+      $script:activeProcess=$null
+      $script:activeAction=$null
+      $script:activeLogPath=$null
+      $script:running=$false
+      Update-Items
+      Update-Status
+    }
+  }
+})
 function Run-Action([string]$action,[string]$target='') {
- if($script:running){return}
- $script:running=$true
- $log.Text="Running $action ..."
- $logPath=Join-Path $env:TEMP ("svb-"+[guid]::NewGuid().ToString('N')+".log")
- try{
-  $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $p=New-Object Diagnostics.ProcessStartInfo
-  $p.FileName=$ps
-  $p.Arguments=('-NoProfile -ExecutionPolicy Bypass -File "{0}" -BackendPath "{1}" -Action {2} -Domain "{3}" -ConfigDir "{4}" -LogPath "{5}"' -f $worker,$backend,$action,$target,$DataDir,$logPath)
-  $p.UseShellExecute=($action -in @('apply','restore'))
-  if($p.UseShellExecute){$p.Verb='runas'}else{$p.CreateNoWindow=$true}
-  $proc=[Diagnostics.Process]::Start($p)
-  $timer=New-Object Windows.Forms.Timer
-  $timer.Interval=200
-  $timer.Add_Tick({
-    if(-not $proc.HasExited){return}
-    $timer.Stop();$timer.Dispose()
-    try{$log.Text=(Get-Content -LiteralPath $logPath -Raw -ErrorAction Stop)}catch{$log.Text="Exit code $($proc.ExitCode); no log."}
-    Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
-    $proc.Dispose();$script:running=$false
-    Update-Items;Update-Status
-  }.GetNewClosure())
-  $timer.Start()
- }catch{$log.Text=$_.Exception.Message;$script:running=$false}
+  if($script:running){
+    $log.Text="Please wait: $($script:activeAction) is still running."
+    return
+  }
+  $script:running=$true
+  $script:activeAction=$action
+  $script:activeStarted=[DateTime]::UtcNow
+  $log.Text="Running $action ..."
+  $path=Join-Path $env:TEMP ("svb-"+[guid]::NewGuid().ToString('N')+".log")
+  try {
+    $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $workerPath=$worker
+    if($InteractionTest -and $action -in @('apply','restore')) {
+      $workerPath=Join-Path $DataDir 'MockWorker.ps1'
+    }
+    $p=New-Object Diagnostics.ProcessStartInfo
+    $p.FileName=$ps
+    $p.Arguments=('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -BackendPath "{1}" -Action {2} -Domain "{3}" -ConfigDir "{4}" -LogPath "{5}"' -f $workerPath,$backend,$action,$target,$DataDir,$path)
+    $p.UseShellExecute=($action -in @('apply','restore') -and -not $InteractionTest)
+    if($p.UseShellExecute){$p.Verb='runas'}else{$p.CreateNoWindow=$true}
+    $script:activeProcess=[Diagnostics.Process]::Start($p)
+    if($null -eq $script:activeProcess){throw "Could not start $action."}
+    $script:activeLogPath=$path
+    $script:actionTimer.Start()
+  }catch{
+    $script:actionTimer.Stop()
+    $script:running=$false
+    $script:activeAction=$null
+    $script:activeProcess=$null
+    $script:activeLogPath=$null
+    $log.Text="Failed to start $action : $($_.Exception.Message)"
+  }
 }
 $add.Add_Click({
  try{$v=Valid-Target $entry.Text;Run-Action 'add' $v;$entry.Clear()}
@@ -176,6 +221,55 @@ $top[1][1].Add_Click({Run-Action 'restore'})
 $other[1][0].Add_Click({Run-Action 'status'})
 $other[1][1].Add_Click({if($null -ne $items.SelectedItem){Run-Action 'dns' ([string]$items.SelectedItem)}})
 Update-Items;Update-Status
+if ($InteractionTest) {
+  # Same dispatcher as GUI; simulated apply/restore never touch network.
+  $mock=Join-Path $DataDir 'MockWorker.ps1'
+  @'
+param([string]$BackendPath,[string]$Action,[string]$Domain,[string]$ConfigDir,[string]$LogPath)
+Start-Sleep -Milliseconds 80
+"SIMULATED $Action SUCCESS" | Set-Content -LiteralPath $LogPath -Encoding UTF8
+exit 0
+'@ | Set-Content -LiteralPath $mock -Encoding UTF8
+  function Wait-Idle([string]$step) {
+    for($k=0;$k -lt 400;$k++){
+      [Windows.Forms.Application]::DoEvents()
+      if(-not $script:running){return}
+      [Threading.Thread]::Sleep(25)
+    }
+    throw "GUI remained busy after $step (10-second limit)"
+  }
+  function Assert-Items([string[]]$expected,[string]$label) {
+    Update-Items
+    $actual=@($items.Items | ForEach-Object{[string]$_})
+    if(($actual -join ',') -ne (($expected|Sort-Object) -join ',')){
+      throw "$label mismatch; expected $($expected -join ','), actual $($actual -join ',')"
+    }
+  }
+  try {
+    Run-Action 'add' 'example.com'; Wait-Idle 'first add'
+    Assert-Items @('example.com') 'first add'
+    Run-Action 'add' 'example.kr'; Wait-Idle 'second add'
+    Run-Action 'add' 'example.wiki'; Wait-Idle 'third add'
+    Run-Action 'add' '192.0.2.10'; Wait-Idle 'IPv4 add'
+    Assert-Items @('example.com','example.kr','example.wiki','192.0.2.10') 'multi-add'
+    Run-Action 'remove' 'example.kr'; Wait-Idle 'remove selected'
+    Assert-Items @('example.com','example.wiki','192.0.2.10') 'remove'
+    for($i=0;$i -lt 3;$i++){
+      Run-Action 'apply'; Wait-Idle "apply cycle $i"
+      if($log.Text -notmatch "SIMULATED apply SUCCESS"){throw 'Simulated apply did not complete'}
+      Run-Action 'restore'; Wait-Idle "restore cycle $i"
+      if($log.Text -notmatch "SIMULATED restore SUCCESS"){throw 'Simulated restore did not complete'}
+    }
+    Run-Action 'add' 'example.net'; Wait-Idle 'add after restore'
+    Assert-Items @('example.com','example.wiki','example.net','192.0.2.10') 'post-restore add'
+    Write-Output 'GUI interaction regression PASS: multi-add, remove, 3 simulated apply/restore pairs, post-restore add.'
+  }finally {
+    $script:actionTimer.Stop()
+    Remove-Item -LiteralPath $mock -Force -ErrorAction SilentlyContinue
+    $form.Dispose()
+  }
+  return
+}
 if ($SmokeTest) {
   if ($items.Items.Count -ne 0) { throw 'Smoke test requires an empty configuration list.' }
   if ($add.Text -ne 'Add' -or $remove.Text -ne 'Remove selected') { throw 'Missing list controls.' }
