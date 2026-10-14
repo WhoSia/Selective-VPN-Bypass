@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-param([string]$RuntimeDir,[string]$DataDir)
+param([string]$RuntimeDir,[string]$DataDir,[switch]$SmokeTest)
 $ErrorActionPreference = 'Stop'
 # DPI awareness must be declared before any WinForms controls are created.
 # Windows may refuse the request if the process already has a DPI context.
@@ -7,12 +7,12 @@ try {
   Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-internal static class SVBDpi {
+public static class SVBDpi {
     [DllImport("user32.dll", EntryPoint="SetProcessDpiAwarenessContext", SetLastError=true)]
-    internal static extern bool SetContext(IntPtr awareness);
+    public static extern bool SetContext(IntPtr awareness);
     [DllImport("user32.dll", EntryPoint="SetProcessDPIAware", SetLastError=true)]
-    internal static extern bool SetLegacy();
-    internal static void BestEffort() {
+    public static extern bool SetLegacy();
+    public static void BestEffort() {
         if (!SetContext(new IntPtr(-4))) { SetLegacy(); }
     }
 }
@@ -176,4 +176,12 @@ $top[1][1].Add_Click({Run-Action 'restore'})
 $other[1][0].Add_Click({Run-Action 'status'})
 $other[1][1].Add_Click({if($null -ne $items.SelectedItem){Run-Action 'dns' ([string]$items.SelectedItem)}})
 Update-Items;Update-Status
+if ($SmokeTest) {
+  if ($items.Items.Count -ne 0) { throw 'Smoke test requires an empty configuration list.' }
+  if ($add.Text -ne 'Add' -or $remove.Text -ne 'Remove selected') { throw 'Missing list controls.' }
+  if ($top[1][0].Text -ne 'Apply' -or $top[1][1].Text -ne 'Restore') { throw 'Missing action controls.' }
+  Write-Output 'GUI controls initialization PASS (no interactive display or DPI test).'
+  $form.Dispose()
+  return
+}
 [void]$form.ShowDialog()
