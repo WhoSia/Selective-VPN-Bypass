@@ -71,6 +71,18 @@ function Lookup([string]$name,[string]$server){
  Where-Object {$_.Type -eq 'A' -and $_.Section -eq 'Answer' -and $_.Name.TrimEnd('.') -ieq $name -and $_.IPAddress}|
  Select-Object -ExpandProperty IPAddress -Unique)
 }
+function Test-CompatibleOwnedNrpt($rule,[string]$namespace,[string[]]$servers){
+ if($null -eq $rule){return $false}
+ if([string]$rule.Comment -cne $OwnerComment){return $false}
+ if(@($rule.Namespace).Count -ne 1 -or [string]@($rule.Namespace)[0] -cne $namespace){return $false}
+ $actual=@($rule.NameServers|ForEach-Object{[string]$_}|Sort-Object -Unique)
+ $expected=@($servers|ForEach-Object{[string]$_}|Sort-Object -Unique)
+ return (($actual -join '|') -ceq ($expected -join '|'))
+}
+function Get-NamespaceRules([string]$namespace){
+ return @(Get-DnsClientNrptRule -ErrorAction Stop|
+  Where-Object { @($_.Namespace) -contains $namespace })
+}
 function Restore-Own {
  $st=State
  if(!$st){Write-Output 'No managed state.';return}
@@ -204,8 +216,20 @@ switch($Action){
   try{
    foreach($n in $hostnames){
     foreach($ns in @($n,".$n")){
-     $existing=@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object {@($_.Namespace) -contains $ns})
-     if($existing.Count){throw "Existing DNS policy conflicts with $ns"}
+     $existing=@(Get-NamespaceRules $ns)
+     if($existing.Count -gt 1){throw "Multiple DNS policies for $ns; manual review required."}
+     if($existing.Count -eq 1){
+      $candidate=$existing[0]
+      if(-not (Test-CompatibleOwnedNrpt $candidate $ns $dns)){
+       throw "Existing DNS policy conflicts with $ns (owner or DNS server mismatch). No policy removed."
+      }
+      # A tagged orphan is adopted only for this exact namespace and DNS server set.
+      # Journal it before continuing so Restore can safely clean it up.
+      $st.rules+=([string]$candidate.Name)
+      Save-Json $StatePath $st
+      Write-Output "Reused compatible owned DNS policy for $ns."
+      continue
+     }
      $r=Add-DnsClientNrptRule -Namespace $ns -NameServers $dns -Comment $OwnerComment -PassThru -ErrorAction Stop
      $st.rules+=([string]$r.Name);Save-Json $StatePath $st
     }
