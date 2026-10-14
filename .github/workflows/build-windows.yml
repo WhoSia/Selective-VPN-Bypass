@@ -1,0 +1,43 @@
+name: Build Windows portable
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'main.go'
+      - 'src/**'
+      - 'go.mod'
+      - 'README.md'
+      - '.github/workflows/build-windows.yml'
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+jobs:
+  portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build Windows x64
+        shell: pwsh
+        run: |
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          $env:CGO_ENABLED='0'
+          go build -trimpath -ldflags='-H windowsgui -s -w' -o SelectiveVPNBypass_GUI.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
+          Compress-Archive -Path SelectiveVPNBypass_GUI.exe, README.md -DestinationPath SelectiveVPNBypass_Portable_Windows_x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SelectiveVPNBypass-Portable-Windows-x64
+          path: SelectiveVPNBypass_Portable_Windows_x64.zip
+          if-no-files-found: error
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release create "${{ github.ref_name }}" SelectiveVPNBypass_Portable_Windows_x64.zip --title "${{ github.ref_name }}" --notes "Portable Windows x64 preview. Extract ZIP and run EXE."
