@@ -1,0 +1,30 @@
+name: Build Windows portable
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['main.go', 'go.mod', 'src/**', '.github/workflows/build-windows.yml']
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        shell: pwsh
+        run: |
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          $env:CGO_ENABLED='0'
+          go build -trimpath -ldflags='-H windowsgui -s -w' -o SelectiveVPNBypass_GUI.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
+          Compress-Archive -Path SelectiveVPNBypass_GUI.exe, README.md -DestinationPath SelectiveVPNBypass_Portable_Windows_x64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SelectiveVPNBypass-Portable-Windows-x64
+          path: SelectiveVPNBypass_Portable_Windows_x64.zip
+          if-no-files-found: error
