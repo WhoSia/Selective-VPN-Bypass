@@ -10,6 +10,8 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
+**Verified CI package (2026-10-14 KST):** [Windows portable build run](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/38511636823) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · package SHA-256 `a566965739f12c57f39f9b5f5a5c22b3a76854fabc772a4ce297df28046b2c1a`. The portable ZIP includes the EXE, README, and MIT LICENSE. GitHub Code → Download ZIP remains source only.
+
 ## Features
 
 - Empty default exception list; add and remove domains (including .kr/.wiki) or IPv4 addresses.
