@@ -31,6 +31,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path $empty | Out-Null
           & powershell.exe -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File .\src\Gui.ps1 -RuntimeDir .\src -DataDir $empty -SmokeTest
           if ($LASTEXITCODE -ne 0) { throw "WinForms initialization failed: $LASTEXITCODE" }
+      - name: Repeated GUI actions smoke test (offline)
+        shell: pwsh
+        run: |
+          $isolated = Join-Path $env:RUNNER_TEMP ('svb-gui-actions-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Force -Path $isolated | Out-Null
+          & powershell.exe -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File .\src\Gui.ps1 -RuntimeDir .\src -DataDir $isolated -InteractionTest
+          if ($LASTEXITCODE -ne 0) { throw "Repeated GUI actions failed: $LASTEXITCODE" }
+          Remove-Item -LiteralPath $isolated -Recurse -Force
       - name: Compile Windows x64
         shell: pwsh
         run: |
