@@ -69,6 +69,7 @@ $left.Controls.Add($label,0,0)
 $items=New-Object Windows.Forms.ListBox
 $items.Dock='Fill';$items.IntegralHeight=$false
 $items.BorderStyle='FixedSingle'
+$items.AccessibleName='Direct connection exceptions'
 $left.Controls.Add($items,0,1)
 $addRow=New-Object Windows.Forms.TableLayoutPanel
 $addRow.Dock='Fill';$addRow.ColumnCount=2
@@ -76,12 +77,15 @@ $addRow.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Percent',70)))|O
 $addRow.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Percent',30)))|Out-Null
 $entry=New-Object Windows.Forms.TextBox
 $entry.Dock='Fill';$entry.Margin=New-Object Windows.Forms.Padding(2,7,5,5)
+$entry.AccessibleName='Exception domain or IPv4 address'
+$entry.ShortcutsEnabled=$true
 $addRow.Controls.Add($entry,0,0)
 $add=New-Object Windows.Forms.Button
 $add.Text='Add';$add.Dock='Fill'
 $addRow.Controls.Add($add,1,0);$left.Controls.Add($addRow,0,2)
 $remove=New-Object Windows.Forms.Button
 $remove.Text='Remove selected';$remove.Dock='Fill'
+$remove.Enabled=$false
 $left.Controls.Add($remove,0,3)
 $right=New-Object Windows.Forms.TableLayoutPanel
 $right.Dock='Fill';$right.RowCount=4
@@ -126,6 +130,7 @@ function Update-Items {
    foreach($v in @($obj.domains|Sort-Object -Unique)){if($v){[void]$items.Items.Add([string]$v)}}
   }catch{$log.Text="Invalid local configuration: $($_.Exception.Message)"}
  }
+ $remove.Enabled=($items.SelectedIndex -ge 0 -and -not $script:running)
 }
 function Update-Status {
  try {
@@ -145,9 +150,11 @@ function Valid-Target([string]$value) {
  throw 'Enter a hostname or IPv4 address (not a URL).'
 }
 function Set-UiBusy([bool]$busy) {
-  foreach($button in @($add,$remove,$top[1][0],$top[1][1],$other[1][0],$other[1][1])){
+  foreach($button in @($add,$top[1][0],$top[1][1],$other[1][0],$other[1][1])){
     $button.Enabled = -not $busy
   }
+  $remove.Enabled=(-not $busy -and $items.SelectedIndex -ge 0)
+  $entry.Enabled=-not $busy
 }
 # Single timer in GUI script scope; no GetNewClosure / separate module state.
 $script:actionTimer=New-Object Windows.Forms.Timer
@@ -180,6 +187,7 @@ $script:actionTimer.Add_Tick({
       Set-UiBusy $false
       Update-Items
       Update-Status
+      if($script:activeAction -eq $null -and -not $form.IsDisposed){$form.BeginInvoke([Action]{if($entry.Enabled){$entry.Focus()}}) | Out-Null}
     }
   }
 })
@@ -226,6 +234,33 @@ $add.Add_Click({
  catch{[Windows.Forms.MessageBox]::Show($_.Exception.Message,'Invalid entry')|Out-Null}
 })
 $remove.Add_Click({if($null -ne $items.SelectedItem){Run-Action 'remove' ([string]$items.SelectedItem)}})
+# Keyboard UX: Enter in input adds, Delete on selected list item removes.
+# Handled suppresses the Windows alert sound and prevents accidental dialog submission.
+$entry.Add_KeyDown({
+ param($sender,$keyEvent)
+ if($keyEvent.KeyCode -eq [Windows.Forms.Keys]::Enter){
+   $keyEvent.Handled=$true
+   $keyEvent.SuppressKeyPress=$true
+   if(-not $script:running -and $entry.Text.Trim().Length -gt 0){$add.PerformClick()}
+ }
+})
+$items.Add_SelectedIndexChanged({
+ $remove.Enabled=($items.SelectedIndex -ge 0 -and -not $script:running)
+})
+$items.Add_KeyDown({
+ param($sender,$keyEvent)
+ if($keyEvent.KeyCode -eq [Windows.Forms.Keys]::Delete -and $items.SelectedIndex -ge 0){
+   $keyEvent.Handled=$true
+   $keyEvent.SuppressKeyPress=$true
+   if(-not $script:running){$remove.PerformClick()}
+ }
+})
+$entry.Add_KeyDown({
+ param($sender,$keyEvent)
+ if($keyEvent.KeyCode -eq [Windows.Forms.Keys]::Escape){
+   $entry.Clear();$keyEvent.Handled=$true;$keyEvent.SuppressKeyPress=$true
+ }
+})
 $top[1][0].Add_Click({Run-Action 'apply'})
 $top[1][1].Add_Click({Run-Action 'restore'})
 $other[1][0].Add_Click({Run-Action 'status'})
@@ -298,7 +333,27 @@ exit 0
     if($script:running){throw 'Busy flag remained locked after failure'}
     $entry.Text='example.net'; Click-Button $add; Wait-Idle 'add after restore'
     Assert-Items @('example.com','example.wiki','example.net','192.0.2.10') 'post-restore add'
-    Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, busy click, failed worker recovery, post-restore add.'
+    # Exercise the real KeyDown handlers via reflection.
+    function Press-Key($control,[Windows.Forms.Keys]$key){
+      $flags=[Reflection.BindingFlags]::Instance -bor [Reflection.BindingFlags]::NonPublic
+      $method=$control.GetType().GetMethod('OnKeyDown',$flags)
+      if($null -eq $method){throw "OnKeyDown not found"}
+      $args=New-Object Windows.Forms.KeyEventArgs($key)
+      [void]$method.Invoke($control,@($args))
+      if(-not $args.Handled -or -not $args.SuppressKeyPress){throw "Key was not consumed: $key"}
+    }
+    $entry.Text='keyboard.example'
+    Press-Key $entry ([Windows.Forms.Keys]::Enter)
+    Wait-Idle 'keyboard add'
+    Assert-Items @('example.com','example.wiki','example.net','192.0.2.10','keyboard.example') 'enter add'
+    $items.SelectedIndex=$items.Items.IndexOf('keyboard.example')
+    Press-Key $items ([Windows.Forms.Keys]::Delete)
+    Wait-Idle 'keyboard delete'
+    Assert-Items @('example.com','example.wiki','example.net','192.0.2.10') 'delete selected'
+    $entry.Text='temporary'
+    Press-Key $entry ([Windows.Forms.Keys]::Escape)
+    if($entry.Text -ne ''){throw 'Escape did not clear input'}
+    Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, busy click, failed worker recovery, post-restore add, Enter/Delete/Escape.'
   }finally {
     $script:actionTimer.Stop()
     Remove-Item -LiteralPath $mock -Force -ErrorAction SilentlyContinue
