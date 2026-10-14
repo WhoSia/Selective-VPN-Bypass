@@ -65,6 +65,35 @@ try {
     throw 'Invalid input changed the saved list.'
   }
 
+  # Import helper functions without touching the network. The list action reads only
+  # this temporary JSON file; mocked rules are in-memory.
+  . $core -Action list -ConfigDir $testDir | Out-Null
+  $owned=[pscustomobject]@{
+    Name='{00000000-0000-0000-0000-000000000001}'
+    Namespace=@('example.com')
+    Comment='Selective-VPN-Bypass-owned'
+    NameServers=@('168.126.63.1','168.126.63.2')
+  }
+  if(-not (Test-CompatibleOwnedNrpt $owned 'example.com' @('168.126.63.2','168.126.63.1'))){
+    throw 'Owned exact rule with matching DNS should be reusable.'
+  }
+  $foreign=[pscustomobject]@{Name=$owned.Name;Namespace=@('example.com');Comment='Another-VPN';NameServers=$owned.NameServers}
+  if(Test-CompatibleOwnedNrpt $foreign 'example.com' @('168.126.63.1','168.126.63.2')){
+    throw 'A foreign rule must never be adopted.'
+  }
+  $otherDns=[pscustomobject]@{Name=$owned.Name;Namespace=@('example.com');Comment=$owned.Comment;NameServers=@('1.1.1.1')}
+  if(Test-CompatibleOwnedNrpt $otherDns 'example.com' @('168.126.63.1','168.126.63.2')){
+    throw 'A tagged rule with mismatched DNS must be rejected.'
+  }
+  $otherScope=[pscustomobject]@{Name=$owned.Name;Namespace=@('.example.com');Comment=$owned.Comment;NameServers=$owned.NameServers}
+  if(Test-CompatibleOwnedNrpt $otherScope 'example.com' @('168.126.63.1','168.126.63.2')){
+    throw 'Exact-name and subdomain namespaces are not interchangeable.'
+  }
+  $multi=[pscustomobject]@{Name=$owned.Name;Namespace=@('example.com','.example.com');Comment=$owned.Comment;NameServers=$owned.NameServers}
+  if(Test-CompatibleOwnedNrpt $multi 'example.com' @('168.126.63.1','168.126.63.2')){
+    throw 'Multi-namespace rules must not be adopted as exact matches.'
+  }
+  Write-Host 'NRPT reconciliation predicate PASS: owned exact, foreign, mismatched DNS, wrong namespace, mixed namespace.'
   Write-Host "Empty defaults, domain/IP add, case normalization, persistence, remove and rejection PASS."
 } finally {
   Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue
