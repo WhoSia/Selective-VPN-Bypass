@@ -153,6 +153,18 @@
 - **동기화 기준:** Run #10 이후 수정은 README와 DEVELOPMENT_LEDGER 문서 커밋이며, 빌드에 임베드된 `main.go`, `src/*`, `go.mod`의 내용은 동일하다. 따라서 정본 소스와 배포 PE 내용 불일치로 표현하지 않는다.
 - **다음 결정:** CI 아티팩트를 내려받을 수 있게 공개하되 안정성 전체를 단정하는 'production certified' 문구는 사용하지 않음. 추후 실기 검증 증거를 획득하면 새로운 시각 항목을 **추가**하여 판정한다.
 
+## 2026-10-14 13:29:20~13:30:17 KST — 공개 portable ZIP 패키징 확정 [CI PASS / DISTRIBUTION VERIFIED / FIELD UNVERIFIED]
+
+- 변경 동기: 직전 패키지에서 MIT 라이선스가 실행용 ZIP 내부에 누락됨. MIT 규정의 라이선스 포함 요건을 공개 배포에서도 준수하기 위해 워크플로 수정.
+- [커밋 `d522d55`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/d522d557b590d1e39fb1224fea06f44402ae30f4) — `.github/workflows/build-windows.yml`에 `LICENSE` 패키징 및 ZIP 내부의 EXE·README·LICENSE 존재 검사를 추가. 저장소 권한은 계속 `contents: read`로 유지.
+- [Actions 실행 #38511636823](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/38511636823): 전체 job `success`. PowerShell 회귀 테스트, WinForms 초기화 스모크 테스트, Windows x64 Go 컴파일, artifact 업로드가 모두 성공.
+- Actions ZIP artifact ID `11869854276`, artifact 래퍼 SHA-256 `945e381ddcd9ffe10da202ca30f788c740632c5ec1f1e57fc27285c578168392`. artifact는 생성 시점에 만료되지 않은 상태.
+- 실제 다운로드 후 2중 압축 아카이브를 검사하여 실행용 `SelectiveVPNBypass_Portable_Windows_x64.zip`을 추출. **배포용 ZIP SHA-256:** `a566965739f12c57f39f9b5f5a5c22b3a76854fabc772a4ce297df28046b2c1a`.
+- 실행용 ZIP 실제 파일 목록: `SelectiveVPNBypass_GUI.exe` (1,789,952 bytes), `README.md` (3,733 bytes), `LICENSE` (1,084 bytes). 모든 압축 항목 무결성 검사 통과, EXE Windows PE32+ x86-64 GUI 형식 확인.
+- 공개 배포 프라이버시 검사: 과거 개인 도메인·학교망 주소가 실행 파일에 평문 상수로 내장되지 않은 것을 대상 문자열별로 확인. 이 검사는 유출 가능성의 전체 보증이 아니라 알려진 개인 설정값에 대한 검사다.
+- **판정:** GitHub 기반 자동 빌드 및 다운로드 가능한 ZIP 완성. **Windows 실기 GUI 가독성, Add/Remove 실제 클릭, Apply/Restore 후 네트워크 통신·복구는 아직 실기 증거 미확보.** 따라서 '전체 기능 production proven'이라고 서술하지 않는다.
+- **배포 방식:** GitHub Actions artifact에서 portable ZIP 내려받기, 또는 확인된 동일 바이트의 아티팩트를 제공. Github Actions[bot]가 커밋·태그·릴리스를 발행하도록 구성하지 않는다.
+
 ## 열린 검증 항목
 
 | 항목 | 기준 | 현재 판정 |
