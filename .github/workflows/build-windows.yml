@@ -24,6 +24,13 @@ jobs:
         run: |
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tests\test-core.ps1
           if ($LASTEXITCODE -ne 0) { throw "PowerShell regression tests failed: $LASTEXITCODE" }
+      - name: WinForms initialization smoke test (no network changes)
+        shell: pwsh
+        run: |
+          $empty = Join-Path $env:RUNNER_TEMP 'svb-empty-gui-smoke'
+          New-Item -ItemType Directory -Force -Path $empty | Out-Null
+          & powershell.exe -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File .\src\Gui.ps1 -RuntimeDir .\src -DataDir $empty -SmokeTest
+          if ($LASTEXITCODE -ne 0) { throw "WinForms initialization failed: $LASTEXITCODE" }
       - name: Compile Windows x64
         shell: pwsh
         run: |
