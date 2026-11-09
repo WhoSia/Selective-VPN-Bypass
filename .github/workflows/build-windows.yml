@@ -47,6 +47,8 @@ jobs:
           $env:CGO_ENABLED='0'
           go vet ./...
           if ($LASTEXITCODE -ne 0) { throw "go vet failed" }
+          go test ./... -v
+          if ($LASTEXITCODE -ne 0) { throw "Go worker security and embedded PowerShell tests failed" }
           go build -trimpath -ldflags='-H windowsgui -s -w' -o SelectiveVPNBypass_GUI.exe .
           if ($LASTEXITCODE -ne 0) { throw "Go build failed" }
           if (-not (Test-Path SelectiveVPNBypass_GUI.exe)) { throw "EXE was not created" }
