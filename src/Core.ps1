@@ -47,16 +47,19 @@ function Route-Records($state){
 function Save-Json($path,$value){
  # Never replace a valid state file with a partially-written JSON document.
  # File.Replace is an atomic same-volume replacement on supported Windows FS.
- $temporary=$path+'.'+[guid]::NewGuid().ToString('N')+'.tmp'
+ $suffix=[guid]::NewGuid().ToString('N')
+ $temporary=$path+'.'+$suffix+'.tmp'
+ $backup=$path+'.'+$suffix+'.bak'
  try{
   $value|ConvertTo-Json -Depth 12|Set-Content -LiteralPath $temporary -Encoding UTF8
   if(Test-Path -LiteralPath $path){
-   [IO.File]::Replace($temporary,$path,$null)
+   [IO.File]::Replace($temporary,$path,$backup)
   }else{
    [IO.File]::Move($temporary,$path)
   }
  }finally{
   Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
  }
 }
 function Normalize-Target([string]$s){
