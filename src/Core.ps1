@@ -131,17 +131,49 @@ function Get-NamespaceRules([string]$namespace){
  return @(Get-DnsClientNrptRule -ErrorAction Stop|
   Where-Object { @($_.Namespace) -contains $namespace })
 }
+# Unfinished NRPT intents are stored by namespace before Windows assigns a rule ID.
+# A pending intent is *not* proof of ownership. Only a unique, exact owner-tagged
+# rule with the expected namespace and DNS server set is eligible for cleanup.
+function Pending-NrptRecords($state){
+ $items=@()
+ foreach($p in @($state.pendingRules)){
+  if($null -eq $p -or !$p.namespace){continue}
+  if(@($p.servers).Count -lt 1){continue}
+  if(-not (@($items|Where-Object{$_.namespace -ceq $p.namespace}).Count)){$items+=,$p}
+ }
+ return $items
+}
+function Find-PendingOwnedNrpt($intent){
+ $rules=@(Get-NamespaceRules ([string]$intent.namespace))
+ if($rules.Count -eq 0){return @()}
+ if($rules.Count -ne 1){throw "NRPT recovery ambiguous for $($intent.namespace): $($rules.Count) matching rules."}
+ $r=$rules[0]
+ if(-not (Test-CompatibleOwnedNrpt $r ([string]$intent.namespace) @($intent.servers))){
+  throw "NRPT recovery ownership or DNS mismatch for $($intent.namespace). Manual review required."
+ }
+ return @($r)
+}
 function Restore-Own {
  $st=State
  if(!$st){Write-Output 'No managed state.';return}
  $errors=@()
- foreach($name in @($st.rules)){
+ $knownRules=@($st.rules)
+ foreach($name in $knownRules){
   try{
    $r=Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction SilentlyContinue
    if($r -and $r.Comment -eq $OwnerComment){
     Remove-DnsClientNrptRule -Name ([string]$name) -Force -ErrorAction Stop|Out-Null
    }elseif($r){throw 'NRPT ownership mismatch'}
   }catch{$errors+="NRPT $name : $_"}
+ }
+ foreach($intent in @(Pending-NrptRecords $st)){
+  try{
+   $matched=@(Find-PendingOwnedNrpt $intent)
+   foreach($r in $matched){
+    if($knownRules -contains ([string]$r.Name)){continue}
+    Remove-DnsClientNrptRule -Name ([string]$r.Name) -Force -ErrorAction Stop|Out-Null
+   }
+  }catch{$errors+="Pending NRPT $($intent.namespace) : $_"}
  }
  foreach($record in @(Route-Records $st)){
   try{
@@ -272,7 +304,7 @@ switch($Action){
   }
   if(State){Restore-Own}
   if(!$ips.Count -and !$hostnames.Count){Write-Output 'No exceptions saved. Nothing to apply.';break}
-  $st=[ordered]@{version=5;wifiIndex=[int]$wifi.ifIndex;routes=@();pendingRoutes=@();rules=@()}
+  $st=[ordered]@{version=6;wifiIndex=[int]$wifi.ifIndex;routes=@();pendingRoutes=@();rules=@();pendingRules=@()}
   Save-Json $StatePath $st
   try{
    foreach($n in $hostnames){
@@ -291,8 +323,15 @@ switch($Action){
       Write-Output "Reused compatible owned DNS policy for $ns."
       continue
      }
+     # Journal intent before OS modification. A crash after Add but before
+     # receiving the assigned Windows Name can now be reconciled by exact tuple.
+     $intent=@{namespace=$ns;servers=@($dns)}
+     $st.pendingRules+=,$intent
+     Save-Json $StatePath $st
      $r=Add-DnsClientNrptRule -Namespace $ns -NameServers $dns -Comment $OwnerComment -PassThru -ErrorAction Stop
-     $st.rules+=([string]$r.Name);Save-Json $StatePath $st
+     $st.rules+=([string]$r.Name)
+     $st.pendingRules=@($st.pendingRules|Where-Object{$_.namespace -cne $ns})
+     Save-Json $StatePath $st
     }
    }
    foreach($ip in $ips){
