@@ -276,6 +276,40 @@
 - CI는 mock objects와 테스트 프로세스를 활용했으나 실제 VPN 연결, 강제 프로세스 종료, OS 라우팅 스택의 full restore, 관리자 UAC 및 네트워크 손실은 증명하지 못함. 따라서 정식 안정판 인증으로 승격하지 않는다.
 - 다음 주요 작업: NRPT를 포함한 crash-reconciled journal, 인스턴스별 소유권 ID, 승격 관리자 helper 무결성, 격리 Windows VM fault-injection.
 
+## 2026-11-09 — NRPT Intent Journal + Embedded Privileged Worker + Isolated Windows Restore [CI PASS / LIVE ISOLATED PASS / FIELD HOLD]
+
+### 목표·소스 기준
+- 전 차수 감사 [AUDIT_2026-11-09.md](AUDIT_2026-11-09.md)의 A-01/A-02/A-10에 대응.
+- 테스트 대상은 오직 사용자가 승인한 GitHub 저장소 및 GitHub가 제공하는 일회성 Windows runner. 실제 사용자 네트워크/도메인/설정 파일은 읽거나 수정하지 않음.
+
+### 1. NRPT 크래시 복구 저널
+- [`182c21f`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/182c21fd0a48014b76e7d2d6bb9f7ce6ccf39628): state schema v6에 `pendingRules` (namespace, DNS 서버 집합) 추가. `Add-DnsClientNrptRule` **전** intent 저장; 성공 시 ID가 있는 `rules`로 이동. Restore는 이름이 기록된 규칙을 먼저 제거하고 미완료 NRPT를 namespace+소유 태그+DNS 서버 정확 일치·단 하나의 규칙인 경우에만 정리.
+- [`950cdf0`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/950cdf0fb78aa473432e4332a7f2781950096f70): 실제 네트워크를 변경하지 않는 mock crash/collision 테스트. 생성 후 journal update 미완료 상태에 놓인 정확한 자사 규칙을 제거하고 타사 namespace는 유지, 같은 namespace의 타사 정책은 거부하고 journal을 보존.
+- 소유 태그 `Selective-VPN-Bypass-owned`는 여전히 일반 문자열임. 같은 태그의 독립 인스턴스는 암호학적 소유권으로 구별하지 못함. 이전 v3/v4/v5 상태의 복구는 제거하지 않고 기존 `rules`/`routes` 경로로 취급.
+
+### 2. 관리자 실행 신뢰 경계 강화
+- [`3f84741`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/3f84741fcc798107f95164a96ee1fa4431d6b0d9): `embedded_worker.go` 생성. 관리자 Go helper는 `go:embed`로 EXE 내부에 봉인된 `Core.ps1` 바이트를 읽고 PowerShell stdin + 짧은 `-EncodedCommand` 부트스트랩으로 실행. **승격 실행 시 사용자 수정 가능한 `runtime-v4/Core.ps1` 또는 `Worker.ps1` 파일을 로드하지 않음**.
+- [`63eb1cf`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/63eb1cff36656e110fb4c91f4c540bdd86691691), [`3f38922`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/3f38922c48164c9c6a54abbde567a6b5090bc72a): `main.go`에서 `--worker` 진입점을 분리하고 GUI의 Apply/Restore가 원본 EXE를 UAC `runas`로 실행하도록 변경. Go helper는 `apply/restore`만 허용, 경로가 EXE 디렉터리와 다르면 거부, 로그 파일명 형식을 검증. 일반 편집/진단은 기존 비승격 워커 사용.
+- [`80f6926`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/80f692609ed039c4a6bd98fbb6966588f390ccc6), [`4ca4319`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/4ca43191e2832f151ce87d2facaffe1ccce93a11): 메모리 부트스트랩 함수 분리, 인자 우회·따옴표 이스케이프·PowerShell 5.1 stdin 실행에 대한 Go 테스트.
+- [`c03d844`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/c03d8441d5226e238d3f827050eb3c5cb382f7ff): Windows 빌드 전에 `go test ./... -v` 게이트 추가.
+- **Residual:** 코드 서명, 전체 설치 ACL/소유권 모델, 표준 사용자→별도 관리자 계정의 UAC 실기 경로, helper 로그 파일 출력 경계, config JSON 권한/신뢰성은 정식 인증 전 추가 검증 필요.
+
+### 3. Windows ephemeral runner 실제 OS 객체·프로세스 종료 재현
+- [`6847b10`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/6847b1027a76d08ceb5db82ea52f8d4ce2dde826): `tests/test-live-recovery.ps1` 작성. GitHub-hosted `GITHUB_ACTIONS` 가드와 관리자 권한 확인을 통과해야만 실행. 문서용 네트워크 TEST-NET-2의 단일 /32와 `.invalid` 랜덤 네임스페이스만 사용. 생성 전 충돌 사전 검사, 별도 자식 PowerShell 프로세스에서 NRPT+route 생성 후 종료(완료 ID/경로 기록 없음), 부모가 v6 pending journal 기반 `Restore-Own` 실행, OS 객체와 상태 파일 소멸 확인. finally에서 해당 테스트 객체만 정리.
+- [`af813ad`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/af813adf90c1b0d5e843005d8beee6992a2d79cc): 주 빌드와 분리한 `Isolated Windows network recovery integration` 워크플로. 읽기 전용 저장소 권한.
+- **실패→수정:** [실패 run `42571483738`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42571483738)에서 테스트 변수 `$domain`이 Core dot-source 과정의 `$Domain` 매개변수에 덮여 자식 호출 인자가 비어 실패. 네트워크 객체 생성 전 실패. [`382a2ec`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/382a2ec994579a44af2af94007aa90e593ab682e)에서 `$testNamespace`로 명명 분리.
+- [**Windows live run `42571566919` PASS**](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42571566919), job `129009888300` 원본 로그: `LIVE isolated Windows NRPT+route crash recovery PASS: orphaned OS objects reconciled after child exit.` (2026-11-09 06:12:00 UTC). 실제 Windows cmdlet로 생성한 DNS 규칙과 IPv4 /32 라우트를 journal만으로 삭제했으며, 삭제 후 두 객체와 state 파일 부재를 확인함.
+- **주의:** 정상적인 자식 프로세스 종료 후 저널 기록 누락을 재현한 fault test다. `TerminateProcess` 임의 지점 강제 중단/전원 상실/사용자 PC 실제 SoftEther 네트워크 장애를 완전히 재현하지는 않는다.
+
+### 배포/테스트
+- [**Windows Portable CI `42571566855` PASS**](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42571566855), source `382a2ec994579a44af2af94007aa90e593ab682e`, artifact `SelectiveVPNBypass-Portable-Windows-x64` ID `13652949670`. 원본 job 로그에 NRPT mock 복구·충돌 거부, Go `TestWorkerArgumentBoundary`, `TestPowerShellSingleQuoteEscaping`, `TestEmbeddedPowerShellBootstrapList` 및 GUI 반복 PASS 기록. 내부 Portable ZIP SHA-256 `38e854bfd6485147543ea87aa28985f730f8de3d7cba0ae8ef4823199430ad36`.
+- Actions/워크플로에서 소스 커밋·태그·GitHub Releases 자동 생성 없음. 모든 저장소 변경은 `WhoSia` 명의; 배포 파일은 Actions에서 다운로드하고 샌드박스 복사본 제공하지 않음.
+
+### 남은 조건
+- 실제 SoftEther VPN 경로를 가진 일반 Windows 사용자 PC의 UAC 승인·Apply/Restore 통합 테스트는 별도.
+- 실행 파일 코드 서명/배포 무결성, 저널의 완전한 소유권 증명, 실패 주입 범위 확장, 동일 도메인의 타 앱 정책 충돌, 다른 Windows 세션/portable config 디렉터리 간 경합은 여전히 보증 밖.
+- 테스트 결과를 정식 운영 제품의 '완전 복구' 보증으로 과장하지 않는다.
+
 ## 열린 검증 항목
 
 | 항목 | 기준 | 현재 판정 |
