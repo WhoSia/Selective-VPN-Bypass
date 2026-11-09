@@ -16,6 +16,8 @@ import (
 
 // The elevated worker reads trusted PowerShell source directly from the Go
 // executable's embed.FS. It never executes a user-writable runtime-v4 *.ps1.
+const workerBootstrap = "$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $s=[Console]::In.ReadToEnd(); & ([ScriptBlock]::Create($s))"
+
 var workerLogName=regexp.MustCompile(`^svb-[0-9a-f]{32}\.log$`)
 
 func psLiteral(value string) string {
@@ -68,8 +70,7 @@ func runEmbeddedWorker(args []string) error {
  powershell:=filepath.Join(root,"System32","WindowsPowerShell","v1.0","powershell.exe")
  // A short trusted bootstrap reads the full embedded script from stdin; no
  // high-privilege script is loaded from a writable file or placed in argv.
- bootstrap:="$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $s=[Console]::In.ReadToEnd(); & ([ScriptBlock]::Create($s))"
- cmd:=exec.Command(powershell,"-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-EncodedCommand",utf16EncodedCommand(bootstrap))
+ cmd:=exec.Command(powershell,"-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-EncodedCommand",utf16EncodedCommand(workerBootstrap))
  cmd.Stdin=strings.NewReader(embeddedCoreWrapper(core,*action,*dir,*logPath))
  output,err:=cmd.CombinedOutput()
  if err!=nil {
