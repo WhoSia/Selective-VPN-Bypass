@@ -172,6 +172,47 @@ try {
   if(Test-Path -LiteralPath $StatePath){throw 'Successful mocked Restore did not remove completed state file.'}
   Write-Host 'Mocked Restore PASS: pending route removed, same-prefix foreign route retained.'
 
+  # Simulate a crash after NRPT creation but before its Windows-assigned ID
+  # can be saved in completed rules. No live DNS settings are modified.
+  $script:mockNrpt=@(
+    [pscustomobject]@{Name='mock-owned-guid';Namespace=@('example.org');Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')},
+    [pscustomobject]@{Name='mock-foreign-guid';Namespace=@('foreign.org');Comment='Other software';NameServers=@('192.0.2.53')}
+  )
+  $script:removedNrpt=@()
+  function Get-DnsClientNrptRule {
+    [CmdletBinding()]
+    param([string]$Name)
+    if($Name){return @($script:mockNrpt|Where-Object{$_.Name -eq $Name})}
+    return $script:mockNrpt
+  }
+  function Remove-DnsClientNrptRule {
+    [CmdletBinding()]
+    param([string]$Name,[switch]$Force)
+    $script:removedNrpt+=,$Name
+  }
+  $pendingRule=[pscustomobject]@{namespace='example.org';servers=@('192.0.2.53')}
+  $state6=[ordered]@{version=6;wifiIndex=9;routes=@();pendingRoutes=@();rules=@();pendingRules=@($pendingRule)}
+  if(@(Pending-NrptRecords $state6).Count -ne 1){throw 'Pending NRPT journal record was lost'}
+  Save-Json $StatePath $state6
+  Restore-Own | Out-Null
+  if(($script:removedNrpt -join ',') -ne 'mock-owned-guid'){throw 'Pending recovery removed a foreign rule or missed the owned rule'}
+  if(Test-Path -LiteralPath $StatePath){throw 'Successful pending NRPT Restore left state behind'}
+  Write-Host 'Mocked NRPT crash recovery PASS: exact owner removed, foreign namespace preserved.'
+
+  # A tagged-but-unrelated policy must not be deleted and the recovery
+  # journal must remain so manual remediation is possible.
+  $script:mockNrpt=@([pscustomobject]@{Name='mock-foreign-conflict';Namespace=@('example.org');Comment='Unrelated';NameServers=@('192.0.2.53')})
+  $script:removedNrpt=@()
+  Save-Json $StatePath $state6
+  $refused=$false
+  try{Restore-Own | Out-Null}catch{$refused=$true}
+  if(-not $refused -or $script:removedNrpt.Count -ne 0 -or -not (Test-Path -LiteralPath $StatePath)){
+    throw 'Conflicting NRPT policy was deleted or pending state was discarded.'
+  }
+  Remove-Item -LiteralPath $StatePath -Force
+  Write-Host 'NRPT collision safety PASS: foreign policy refused, journal retained.'
+
+
 
   Write-Host "Empty defaults, domain/IP add, case normalization, persistence, remove and rejection PASS."
 } finally {
