@@ -17,7 +17,7 @@ function Enter-ConfigLock {
  try {$bytes=$hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($full))}
  finally {$hash.Dispose()}
  $id=([BitConverter]::ToString($bytes)).Replace('-','').Substring(0,32)
- $m=New-Object System.Threading.Mutex($false,("Local\SelectiveVPNBypass-"+$id))
+ $m=[System.Threading.Mutex]::new($false,("Local\SelectiveVPNBypass-"+$id))
  $acquired=$false
  try{
   try{$acquired=$m.WaitOne(5000)}
