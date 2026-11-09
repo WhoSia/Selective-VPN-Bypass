@@ -249,6 +249,31 @@
 - 이 감사의 GitHub 커밋은 문서 생성에 한정. **소스 로직·Actions·릴리스 변경 없음**. 실사용 성공 보고를 부정하지 않지만, 정식 안정판의 오류 복구 보장을 입증하지 못함.
 - 종료 조건: 관리자 helper 무결성, 저널/복구 멱등성, 프로세스 동시성 통제, 소유권 검증, 격리 Windows VM의 crash/failure matrix, 실제 DNS/라우트 반복 검증.
 
+## 2026-11-09 14:19~14:26 KST — Write-ahead IPv4 route intent + 단일 작성자 잠금 구현 [COMMITTED / TESTED-ON-CI]
+
+### 목표와 정본
+- 근거: [2026-11-09 공학적 코드 감사](AUDIT_2026-11-09.md)의 A-01(상태 기록 전 크래시), A-03(동시 실행), A-04(라우트 소유권), A-05(Restore 멱등성).
+- 사용자별 예외 목록, 주소, VPN 서버 정보는 공개 기록에 넣지 않는다. 이전 JSON/NRPT 설정을 일괄 삭제하거나 자동 재작성하지 않는다.
+
+### 소스 패치
+- [`c925f6f`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/c925f6f9941d714285dc38d4a21c6d091664f93d): `Core.ps1`에 설정 경로 SHA-256 기반 Windows named mutex(현재 로그인 세션의 `Local\\` 범위)와 5초 경합 제한 도입. Add/Remove/Apply/Restore 작업이 동일 설정 경로에서 직렬화된다. 정밀 라우트 식별 함수는 prefix·gateway·interfaceIndex·RouteMetric(1)을 대조. 같은 IP 프리픽스지만 타 인터페이스/게이트웨이인 라우트는 사전 검증에서 차단.
+- `version=5` state에 `pendingRoutes` 도입. `New-NetRoute` 호출 **전** 경로 의도를 JSON으로 기록하고, 성공 시 `routes`로 이동. `Restore-Own`은 구형 `routes`와 신규 `pendingRoutes`를 병합·중복 제거한 후, 정확히 일치하는 Windows 라우트만 삭제 시도한다. 구형 state의 `pendingRoutes` 부재는 허용.
+- [`865e71a`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/865e71aaaac3bb2d02fe9155d127d1d68382733e): `Save-Json`을 고유 임시파일+Windows `File.Replace` 기반 상태 교체로 수정.
+- [`fbdc6a5`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/fbdc6a576f7559869a3b5ca8cc3e3819f72a1a4f): Windows PowerShell 5.1에서 named Mutex 생성에 `[Threading.Mutex]::new(...)` 명시.
+- **실패 재현·수정:** [Actions `42566762273`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42566762273) 초기 회귀 테스트에서 `File.Replace(..., $null)`가 `The path is not of a legal form.`으로 실패. [`de35ed1`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/de35ed1c5ab9d033fb22747b7443b9de7ec99e45)에서 백업 경로를 항상 명시하도록 수정. **실패한 빌드는 배포 대상으로 간주하지 않음.**
+- [`0835b02`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/0835b02fdc819a46c7061b2ef8c3fda06bf1f69d): README에 동시성 범위·복구 한계 명시, 로컬 빌드 ZIP에 LICENSE 포함.
+
+### 회귀 검증
+- [`4d0acab`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/4d0acabf797b036c74c17fa6641f648096cd7515): PowerShell 테스트에 pending-only 상태 복구 대상 인식, 중복 제거, 구형 상태 호환, exact tuple 비교, **별도 프로세스 잠금 경합** 시나리오 추가.
+- [Actions `42566960193`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42566960193): Windows PowerShell 구문 PASS, NRPT 소유권 회귀 PASS, route journal/legacy/tuple PASS, cross-process mutex PASS, GUI 초기화 및 반복 버튼 테스트 PASS, Windows x64 Go 빌드 PASS, ZIP 업로드 PASS. 배포 ZIP SHA-256 `2a67bd5dff3098662fe9a71661faa5d54b44c4c6dd31558c7f8a72aeeeda2390`. 해당 빌드의 source SHA는 `de35ed1c5ab9d033fb22747b7443b9de7ec99e45`.
+- [`9fa6dd9`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/9fa6dd990d20bdc5cbe3d19fa8b4b121c79ca29a): 동일한 prefix이지만 다른 gateway의 모의 Windows route를 함께 두고, `Restore-Own`이 pending 소유 경로 한 개만 제거하고 타사 경로는 보존하는 테스트 신규 추가. 이 커밋의 Actions 결과는 별도로 판정해야 함.
+
+### 보장 범위와 남은 차단점
+- 이번 write-ahead는 **IPv4 route에 한정**. NRPT의 Windows-assigned ID를 생성 후 기록하기 전 종료될 경우 orphan NRPT가 남는 문제는 아직 해결되지 않았음.
+- Mutex는 **같은 configuration directory + 같은 Windows session** 범위에 대한 단일 작성자 보장. 별도의 portable 폴더, 다른 사용자 세션, 상승/비상승 토큰 ACL, 외부 프로그램과의 경쟁 전부를 방지하지 못한다.
+- CI는 mock objects와 테스트 프로세스를 활용했으나 실제 VPN 연결, 강제 프로세스 종료, OS 라우팅 스택의 full restore, 관리자 UAC 및 네트워크 손실은 증명하지 못함. 따라서 정식 안정판 인증으로 승격하지 않는다.
+- 다음 주요 작업: NRPT를 포함한 crash-reconciled journal, 인스턴스별 소유권 ID, 승격 관리자 helper 무결성, 격리 Windows VM fault-injection.
+
 ## 열린 검증 항목
 
 | 항목 | 기준 | 현재 판정 |
