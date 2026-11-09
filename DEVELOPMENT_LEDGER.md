@@ -266,7 +266,9 @@
 ### 회귀 검증
 - [`4d0acab`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/4d0acabf797b036c74c17fa6641f648096cd7515): PowerShell 테스트에 pending-only 상태 복구 대상 인식, 중복 제거, 구형 상태 호환, exact tuple 비교, **별도 프로세스 잠금 경합** 시나리오 추가.
 - [Actions `42566960193`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42566960193): Windows PowerShell 구문 PASS, NRPT 소유권 회귀 PASS, route journal/legacy/tuple PASS, cross-process mutex PASS, GUI 초기화 및 반복 버튼 테스트 PASS, Windows x64 Go 빌드 PASS, ZIP 업로드 PASS. 배포 ZIP SHA-256 `2a67bd5dff3098662fe9a71661faa5d54b44c4c6dd31558c7f8a72aeeeda2390`. 해당 빌드의 source SHA는 `de35ed1c5ab9d033fb22747b7443b9de7ec99e45`.
-- [`9fa6dd9`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/9fa6dd990d20bdc5cbe3d19fa8b4b121c79ca29a): 동일한 prefix이지만 다른 gateway의 모의 Windows route를 함께 두고, `Restore-Own`이 pending 소유 경로 한 개만 제거하고 타사 경로는 보존하는 테스트 신규 추가. 이 커밋의 Actions 결과는 별도로 판정해야 함.
+- [`9fa6dd9`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/9fa6dd990d20bdc5cbe3d19fa8b4b121c79ca29a): 동일한 prefix이지만 다른 gateway의 모의 Windows route를 함께 두고, `Restore-Own`이 pending 소유 경로 한 개만 제거하고 타사 경로는 보존하는 테스트 신규 추가. [Actions **42567252728**](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42567252728) 결과: **PASS**. 원본 job 로그에 `Mocked Restore PASS: pending route removed, same-prefix foreign route retained.` 기록. 네트워크 실기 아닌 모의 객체 기반 검사임.
+
+- **최종 Windows CI:** 실행 [`42567252728`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42567252728), source SHA `9fa6dd990d20bdc5cbe3d19fa8b4b121c79ca29a`. PowerShell syntax, NRPT ownership predicate, pending/legacy journal, cross-process Mutex, mocked Restore, GUI 초기화·반복 버튼, Go Windows x64 빌드, ZIP 업로드 모두 PASS. `SelectiveVPNBypass-Portable-Windows-x64` artifact ID `13651902180`. ZIP SHA-256: `6fa92d7d4bc6b437b12cd34d08357992c0940ee19c0c8aa99d9f2b21c914c82b` (Actions 내부 ZIP 해시). 배포 가능하나 실제 SoftEther 경로 변경·크래시 주입·UAC는 여전히 미검증.
 
 ### 보장 범위와 남은 차단점
 - 이번 write-ahead는 **IPv4 route에 한정**. NRPT의 Windows-assigned ID를 생성 후 기록하기 전 종료될 경우 orphan NRPT가 남는 문제는 아직 해결되지 않았음.
