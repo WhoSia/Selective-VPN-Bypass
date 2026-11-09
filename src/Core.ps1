@@ -9,6 +9,41 @@ $WifiAlias='Wi-Fi';$VpnAlias='VPN - VPN Client'
 $ConfigPath=Join-Path $ConfigDir 'Selective-VPN-Bypass.domains.json'
 $StatePath=Join-Path $ConfigDir 'Selective-VPN-Bypass_v3.state.json'
 $OwnerComment='Selective-VPN-Bypass-owned'
+# Single writer per portable config directory, shared by elevated and normal workers
+# in the current Windows session. Lock is acquired before any file/network mutation.
+function Enter-ConfigLock {
+ $full=[IO.Path]::GetFullPath($ConfigDir).TrimEnd('\').ToUpperInvariant()
+ $hash=[Security.Cryptography.SHA256]::Create()
+ try {$bytes=$hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($full))}
+ finally {$hash.Dispose()}
+ $id=([BitConverter]::ToString($bytes)).Replace('-','').Substring(0,32)
+ $m=New-Object System.Threading.Mutex($false,("Local\SelectiveVPNBypass-"+$id))
+ $acquired=$false
+ try{
+  try{$acquired=$m.WaitOne(5000)}
+  catch [Threading.AbandonedMutexException]{$acquired=$true}
+  if(-not $acquired){throw 'Another operation is running for this configuration. Retry after it finishes.'}
+  return $m
+ }catch{$m.Dispose();throw}
+}
+function Test-ManagedRouteMatch($route,$record,[int]$ifIndex){
+ return (
+  [string]$route.DestinationPrefix -eq [string]$record.prefix -and
+  [string]$route.NextHop -eq [string]$record.gateway -and
+  [int]$route.InterfaceIndex -eq $ifIndex -and
+  [int]$route.RouteMetric -eq 1
+ )
+}
+function Route-Records($state){
+ $all=@()
+ foreach($r in @($state.routes)+@($state.pendingRoutes)){
+  if($null -eq $r -or !$r.prefix -or !$r.gateway){continue}
+  if(-not (@($all|Where-Object{$_.prefix -eq $r.prefix -and $_.gateway -eq $r.gateway}).Count)){
+   $all+=,$r
+  }
+ }
+ return $all
+}
 function Save-Json($path,$value){
  $temporary="$path.tmp"
  $value|ConvertTo-Json -Depth 12|Set-Content -LiteralPath $temporary -Encoding UTF8
@@ -95,12 +130,12 @@ function Restore-Own {
    }elseif($r){throw 'NRPT ownership mismatch'}
   }catch{$errors+="NRPT $name : $_"}
  }
- foreach($record in @($st.routes)){
+ foreach($record in @(Route-Records $st)){
   try{
    $a=Get-NetAdapter -Name $WifiAlias -ErrorAction Stop
    if([int]$a.ifIndex -ne [int]$st.wifiIndex){throw 'Interface index changed'}
    $found=@(Get-NetRoute -InterfaceIndex ([int]$st.wifiIndex) -AddressFamily IPv4 -ErrorAction SilentlyContinue|
-    Where-Object {$_.DestinationPrefix -eq [string]$record.prefix -and $_.NextHop -eq [string]$record.gateway -and $_.RouteMetric -eq 1})
+    Where-Object { Test-ManagedRouteMatch $_ $record ([int]$st.wifiIndex) })
    foreach($r in $found){Remove-NetRoute -InputObject $r -Confirm:$false -ErrorAction Stop}
   }catch{$errors+="Route $($record.prefix) : $_"}
  }
@@ -108,6 +143,11 @@ function Restore-Own {
  Remove-Item -LiteralPath $StatePath -Force
  Write-Output 'Managed routes and DNS rules restored; VPN default route left intact.'
 }
+# Read-only operations can proceed; all writes (including Apply/Restore) use
+# one cross-process writer lock. No implicit recovery if state is unfamiliar.
+$script:configMutex=$null
+if($Action -in @('add','remove','apply','restore')){$script:configMutex=Enter-ConfigLock}
+try {
 switch($Action){
  'list'{Targets|ForEach-Object{Write-Output $_};break}
  'add'{
@@ -201,17 +241,25 @@ switch($Action){
    $ips+=$answers;$hostnames+=$n
   }
   $ips=@($ips|Sort-Object -Unique)
-  # Collision preflight precedes any change.
-  $owned=@()
-  if(State){$owned=@((State).routes|ForEach-Object{$_.prefix})}
+  # Fail closed if ANY route for a target prefix is not precisely in our
+  # previous state. Prefix-only ownership is insufficient.
+  $previous=State
   foreach($ip in $ips){
    $prefix="$ip/32"
    $existing=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue|Where-Object DestinationPrefix -eq $prefix)
-   if($existing.Count -and $owned -notcontains $prefix){throw "Existing unmanaged route $prefix. No changes made."}
+   foreach($r in $existing){
+    $matched=$false
+    if($previous){
+     foreach($record in @(Route-Records $previous)){
+      if(Test-ManagedRouteMatch $r $record ([int]$previous.wifiIndex)){$matched=$true;break}
+     }
+    }
+    if(-not $matched){throw "Existing unmanaged route $prefix. No changes made."}
+   }
   }
   if(State){Restore-Own}
   if(!$ips.Count -and !$hostnames.Count){Write-Output 'No exceptions saved. Nothing to apply.';break}
-  $st=[ordered]@{version=4;wifiIndex=[int]$wifi.ifIndex;routes=@();rules=@()}
+  $st=[ordered]@{version=5;wifiIndex=[int]$wifi.ifIndex;routes=@();pendingRoutes=@();rules=@()}
   Save-Json $StatePath $st
   try{
    foreach($n in $hostnames){
@@ -236,8 +284,14 @@ switch($Action){
    }
    foreach($ip in $ips){
     $entry=@{prefix="$ip/32";gateway=$gateway}
+    # Write-ahead intent: if interrupted after OS route creation but before
+    # completion logging, Restore still knows exactly which tuple to inspect.
+    $st.pendingRoutes+=$entry
+    Save-Json $StatePath $st
     New-NetRoute -DestinationPrefix $entry.prefix -InterfaceIndex $wifi.ifIndex -NextHop $gateway -RouteMetric 1 -PolicyStore ActiveStore -ErrorAction Stop|Out-Null
-    $st.routes+=$entry;Save-Json $StatePath $st
+    $st.routes+=$entry
+    $st.pendingRoutes=@($st.pendingRoutes|Where-Object{$_.prefix -ne $entry.prefix})
+    Save-Json $StatePath $st
    }
   }catch{
    $reason=$_.Exception.Message
@@ -247,5 +301,10 @@ switch($Action){
   Write-Output "Applied $($ips.Count) IPv4 routes, $($hostnames.Count) hostnames. Default VPN and Tailscale routes unchanged."
   Write-Warning 'This does not guarantee domain isolation: IPv6, DoH, QUIC, and CDN IP sharing may differ.'
   break
+ }
+}
+} finally {
+ if($null -ne $script:configMutex){
+  try{$script:configMutex.ReleaseMutex()}finally{$script:configMutex.Dispose()}
  }
 }
