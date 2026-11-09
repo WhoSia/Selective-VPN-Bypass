@@ -46,8 +46,14 @@ $env:GOOS='windows'
 $env:GOARCH='amd64'
 $env:CGO_ENABLED='0'
 go build -trimpath -ldflags='-H windowsgui -s -w' -o SelectiveVPNBypass_GUI.exe .
-Compress-Archive -Path SelectiveVPNBypass_GUI.exe,README.md -DestinationPath SelectiveVPNBypass_Portable_Windows_x64.zip -Force
+Compress-Archive -Path SelectiveVPNBypass_GUI.exe,README.md,LICENSE -DestinationPath SelectiveVPNBypass_Portable_Windows_x64.zip -Force
 ```
+
+## Recovery and concurrent use
+
+Apply/Restore and list mutations are serialized per portable configuration folder by a Windows named mutex. A pending IPv4 route intent is persisted before creating the matching OS route, and Restore checks both completed and pending route records. State JSON replacement uses same-folder temporary files.
+
+This is an **incremental crash-recovery improvement**, not a claim that every NRPT rule or route can be recovered after an arbitrary crash. In particular, NRPT rule creation still has a window before its generated Windows rule ID is recorded. Avoid running separate portable copies against the same Windows network configuration until installation-scoped ownership is implemented and tested.
 
 ## Safety and limitations
 
