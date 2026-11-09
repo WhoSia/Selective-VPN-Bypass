@@ -1,0 +1,24 @@
+name: Isolated Windows network recovery integration
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tests/test-live-recovery.ps1'
+      - '.github/workflows/live-recovery.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-recovery:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ephemeral Windows NRPT and route fault-injection acceptance
+        shell: pwsh
+        env:
+          SVB_LIVE_TEST_ACK: "reserved-addresses-only"
+        run: |
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Requires GitHub-hosted runner' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tests\test-live-recovery.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Live recovery test failed: $LASTEXITCODE" }
