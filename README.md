@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-09 KST):** [Windows portable: crash-aware IPv4 route journal and single-writer lock](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42567252728) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · package SHA-256 `6fa92d7d4bc6b437b12cd34d08357992c0940ee19c0c8aa99d9f2b21c914c82b`. Syntax, route journal/strict ownership, cross-process mutex, mocked Restore, GUI and Windows x64 compilation PASS. Actual SoftEther/UAC crash recovery and NRPT orphan recovery are **not yet field-certified**.
+**Latest verified CI package (2026-11-09 KST):** [Windows Portable: NRPT crash journal + embedded privileged helper](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42571566855) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · package SHA-256 `38e854bfd6485147543ea87aa28985f730f8de3d7cba0ae8ef4823199430ad36`. Regression, simulated restore, embedded worker tests, Windows x64 compile and ZIP upload PASS. [Isolated live Windows crash-recovery test](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42571566919) also PASS with reserved test objects. Real SoftEther/UAC approval and arbitrary forced termination on a user's network remain unverified.
 
 ## Features
 
@@ -23,7 +23,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 ## Architecture
 
-Go executable embeds three PowerShell sources: `src/Gui.ps1` (WinForms UI), `src/Core.ps1` (validation/routing), `src/Worker.ps1` (command worker). This is **not** yet a native Go UI toolkit. A fully modern high-DPI interface is a future improvement; the preview uses DPI-scaled layout and needs real-world display testing.
+The Go executable now invokes its embedded Core PowerShell source **from memory for elevated Apply/Restore**, without loading a writable runtime-v4 script for privileged work. Read-only/list editing still uses the normal PowerShell worker. The privileged helper allows only Apply/Restore and validates the portable configuration folder and worker log name. The executable is not code-signed, so this is a trust-boundary hardening step, not verified resistance to executable replacement or every local attack.\n\nGo executable embeds three PowerShell sources: `src/Gui.ps1` (WinForms UI), `src/Core.ps1` (validation/routing), `src/Worker.ps1` (command worker). This is **not** yet a native Go UI toolkit. A fully modern high-DPI interface is a future improvement; the preview uses DPI-scaled layout and needs real-world display testing.
 
 ## Verification and development history
 
@@ -51,9 +51,9 @@ Compress-Archive -Path SelectiveVPNBypass_GUI.exe,README.md,LICENSE -Destination
 
 ## Recovery and concurrent use
 
-Apply/Restore and list mutations are serialized per portable configuration folder by a Windows named mutex. A pending IPv4 route intent is persisted before creating the matching OS route, and Restore checks both completed and pending route records. State JSON replacement uses same-folder temporary files.
+Apply/Restore and list mutations are serialized per portable configuration folder by a Windows named mutex. Pending IPv4 route intents **and NRPT namespace/DNS intents** are persisted before corresponding OS changes, and Restore checks completed and pending records. For NRPT pending records without a Windows-generated ID, recovery only removes a uniquely matching owner-tagged namespace with the same DNS servers; ambiguous or foreign rules are rejected. State JSON replacement uses same-folder temporary files.
 
-This is an **incremental crash-recovery improvement**, not a claim that every NRPT rule or route can be recovered after an arbitrary crash. In particular, NRPT rule creation still has a window before its generated Windows rule ID is recorded. Avoid running separate portable copies against the same Windows network configuration until installation-scoped ownership is implemented and tested.
+This is an **incremental crash-recovery improvement**, not a claim that every NRPT rule or route can be recovered after an arbitrary crash. A rule created just before an interrupted journal update can now be reconciled when it has a unique exact match; collisions, same-tag foreign instances and externally modified settings remain residual risks. Avoid running separate portable copies against the same Windows network configuration until installation-scoped ownership is implemented and tested.
 
 ## Safety and limitations
 
