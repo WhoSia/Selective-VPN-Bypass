@@ -15,7 +15,7 @@ $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $core=Join-Path $root 'src\Core.ps1'
 $dir=Join-Path $env:RUNNER_TEMP ('svb-live-recovery-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-$domain=('svb-recovery-'+[guid]::NewGuid().ToString('N')+'.invalid')
+$testNamespace=('svb-recovery-'+[guid]::NewGuid().ToString('N')+'.invalid')
 $prefix='198.51.100.241/32'
 $server='192.0.2.53'
 $index=$null
@@ -34,7 +34,7 @@ try{
  if(@(Get-NetRoute -DestinationPrefix $prefix -AddressFamily IPv4 -ErrorAction SilentlyContinue).Count){
   throw 'Reserved test route unexpectedly exists. No changes made.'
  }
- if(@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $domain}).Count){
+ if(@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $testNamespace}).Count){
   throw 'Reserved test NRPT namespace unexpectedly exists.'
  }
  # Dot-source only read-only list action, which defines reconciliation functions
@@ -43,7 +43,7 @@ try{
  $journal=[ordered]@{
   version=6;wifiIndex=$index;routes=@()
   pendingRoutes=@(@{prefix=$prefix;gateway=$gw})
-  rules=@();pendingRules=@(@{namespace=$domain;servers=@($server)})
+  rules=@();pendingRules=@(@{namespace=$testNamespace;servers=@($server)})
  }
  Save-Json $statePath $journal
 
@@ -58,9 +58,9 @@ New-NetRoute -DestinationPrefix $Prefix -InterfaceIndex $IfIndex -NextHop $Gatew
 exit 0
 '@ | Set-Content -LiteralPath $child -Encoding UTF8
  $powershell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
- & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $child -Domain $domain -Prefix $prefix -IfIndex $index -Gateway $gw -Dns $server
+ & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $child -Domain $testNamespace -Prefix $prefix -IfIndex $index -Gateway $gw -Dns $server
  if($LASTEXITCODE -ne 0){throw "Fault injection child failed: $LASTEXITCODE"}
- $dnsBefore=@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $domain})
+ $dnsBefore=@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $testNamespace})
  $routeBefore=@(Get-NetRoute -InterfaceIndex $index -AddressFamily IPv4 -ErrorAction Stop|
   Where-Object {$_.DestinationPrefix -eq $prefix -and $_.NextHop -eq $gw -and $_.RouteMetric -eq 1})
  if($dnsBefore.Count -ne 1 -or $routeBefore.Count -ne 1){
@@ -74,7 +74,7 @@ exit 0
   return [pscustomobject]@{ifIndex=$index;Status='Up';Name=$Name}
  }
  Restore-Own | Out-Null
- $dnsAfter=@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $domain})
+ $dnsAfter=@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $testNamespace})
  $routeAfter=@(Get-NetRoute -InterfaceIndex $index -AddressFamily IPv4 -ErrorAction SilentlyContinue|
   Where-Object {$_.DestinationPrefix -eq $prefix -and $_.NextHop -eq $gw})
  if($dnsAfter.Count -ne 0 -or $routeAfter.Count -ne 0 -or (Test-Path -LiteralPath $statePath)){
@@ -87,7 +87,7 @@ exit 0
  # and known route tuple. Never remove other network policies.
  try{
   foreach($rule in @(Get-DnsClientNrptRule -ErrorAction SilentlyContinue|
-   Where-Object{@($_.Namespace) -contains $domain -and $_.Comment -eq 'Selective-VPN-Bypass-owned'})){
+   Where-Object{@($_.Namespace) -contains $testNamespace -and $_.Comment -eq 'Selective-VPN-Bypass-owned'})){
    Remove-DnsClientNrptRule -Name ([string]$rule.Name) -Force -ErrorAction Stop | Out-Null
   }
  }catch{Write-Warning "Cleanup NRPT issue: $_"}
