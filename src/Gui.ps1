@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-param([string]$RuntimeDir,[string]$DataDir,[switch]$SmokeTest,[switch]$InteractionTest)
+param([string]$RuntimeDir,[string]$DataDir,[string]$LauncherPath,[switch]$SmokeTest,[switch]$InteractionTest)
 $ErrorActionPreference = 'Stop'
 # DPI awareness must be declared before any WinForms controls are created.
 # Windows may refuse the request if the process already has a DPI context.
@@ -209,10 +209,21 @@ function Run-Action([string]$action,[string]$target='') {
       $workerPath=Join-Path $DataDir 'MockWorker.ps1'
     }
     $p=New-Object Diagnostics.ProcessStartInfo
-    $p.FileName=$ps
-    $p.Arguments=('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -BackendPath "{1}" -Action {2} -Domain "{3}" -ConfigDir "{4}" -LogPath "{5}"' -f $workerPath,$backend,$action,$target,$DataDir,$path)
-    $p.UseShellExecute=($action -in @('apply','restore') -and -not $InteractionTest)
-    if($p.UseShellExecute){$p.Verb='runas'}else{$p.CreateNoWindow=$true}
+    $requiresElevation=($action -in @('apply','restore') -and -not $InteractionTest)
+    if($requiresElevation){
+      if(-not $LauncherPath -or -not (Test-Path -LiteralPath $LauncherPath)){
+        throw 'The original portable executable is required for elevated actions.'
+      }
+      $p.FileName=$LauncherPath
+      $p.Arguments=('--worker -Action {0} -ConfigDir "{1}" -LogPath "{2}"' -f $action,$DataDir,$path)
+      $p.UseShellExecute=$true
+      $p.Verb='runas'
+    }else{
+      $p.FileName=$ps
+      $p.Arguments=('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -BackendPath "{1}" -Action {2} -Domain "{3}" -ConfigDir "{4}" -LogPath "{5}"' -f $workerPath,$backend,$action,$target,$DataDir,$path)
+      $p.UseShellExecute=$false
+      $p.CreateNoWindow=$true
+    }
     $script:activeProcess=[Diagnostics.Process]::Start($p)
     if($null -eq $script:activeProcess){throw "Could not start $action."}
     $script:activeLogPath=$path
