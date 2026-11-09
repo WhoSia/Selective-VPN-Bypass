@@ -45,7 +45,7 @@ func launch() error {
  }
  powershell:=filepath.Join(os.Getenv("SystemRoot"),"System32","WindowsPowerShell","v1.0","powershell.exe")
  cmd:=exec.Command(powershell,"-NoLogo","-NoProfile","-STA","-ExecutionPolicy","Bypass","-WindowStyle","Hidden",
-  "-File",filepath.Join(rt,"Gui.ps1"),"-RuntimeDir",rt,"-DataDir",dataDir)
+  "-File",filepath.Join(rt,"Gui.ps1"),"-RuntimeDir",rt,"-DataDir",dataDir,"-LauncherPath",exe)
  cmd.Dir=dataDir
  cmd.SysProcAttr=&syscall.SysProcAttr{HideWindow:true}
  logFile,err:=os.Create(filepath.Join(rt,"startup.log"))
@@ -53,4 +53,10 @@ func launch() error {
  if err=cmd.Run();err!=nil{return fmt.Errorf("GUI execution failed: %v (see runtime startup.log)",err)}
  return nil
 }
-func main(){if err:=launch();err!=nil{errorBox(err.Error())}}
+func main(){
+ if len(os.Args)>1 && os.Args[1]=="--worker" {
+  if err:=runEmbeddedWorker(os.Args[2:]);err!=nil{os.Exit(1)}
+  return
+ }
+ if err:=launch();err!=nil{errorBox(err.Error())}
+}
