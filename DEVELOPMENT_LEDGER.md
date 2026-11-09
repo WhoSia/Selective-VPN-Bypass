@@ -325,6 +325,17 @@
 | Restore | 관리하는 경로만 제거하고 타 클라이언트 경로 유지 | **실기 미검증** |
 | 첫 Preview Release | 위 검증 및 리스크 공지 후 WhoSia가 수동 배포 | **보류** |
 
+## 2026-11-09 15:19:07 KST — 세 가지 감사 과제 재검증 및 네트워크 복구 테스트 실행 트리거 보강 [COMMITTED / CI PASS]
+
+- **기존 구현 재감사:** 저장소 최신 `Core.ps1`은 `pendingRules` 및 `pendingRoutes`를 기록하고, 미완료 NRPT 규칙을 네임스페이스·DNS 서버·소유 표시의 유일한 정확 일치 조건에서만 복구하도록 구현되어 있음. 현재 상태 파일의 `version=6`을 확인. 이름이 부여된 기존 규칙 기록(`rules`)과 생성 중 상태(`pendingRules`)를 별도로 취급함.
+- **권한 경계 확인:** `embedded_worker.go`는 관리자 권한으로 실행하는 `apply`·`restore`를 Go 실행 파일의 내장 `Core.ps1` 소스에서 구성해 PowerShell 표준 입력으로 전달함. `runtime-v4/*.ps1`를 관리자 권한 실행 경로로 읽지 않도록 한 점은 개선. 하지만 EXE가 코드 서명되지 않은 상태이고, 사용자가 쓸 수 있는 배포 폴더의 실행 파일 교체와 로컬 공격 전반의 방어는 **미입증**.
+- **격리 통합 테스트 확인:** [Actions `42571566919`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42571566919)에서 GitHub-hosted Windows runner의 테스트용 예약 도메인·IPv4 경로를 실제 생성한 다음, 완료 ID가 기록되지 않은 저널을 통한 Restore 검증이 PASS. 이는 **자식 프로세스의 정상 종료로 미완료 저널 상태를 재현**하는 것이며 강제 프로세스 종료·사용자 SoftEther·UAC를 입증하지 않음.
+- **새로 발견한 CI 누락:** 기존 `.github/workflows/live-recovery.yml`은 테스트 파일/워크플로 수정 시에만 실행되므로, 복구 본체인 `src/Core.ps1`을 수정해도 이 안전성 검사가 자동 트리거되지 않았음.
+- **패치:** [`8d9db44`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/8d9db44345b3fb6f4484cb1f17fe51ea425a2fa9)에서 live recovery 워크플로 `push.paths`에 `src/Core.ps1`, `tests/test-core.ps1`을 추가. 실패 시 다른 애플리케이션의 임의 정책을 자동 변경하지 않도록 기존 예약 테스트 객체 범위와 정밀 정리 원칙은 유지.
+- **검증:** [Actions `42572216124`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42572216124)에서 새 변경으로 자동 트리거된 `Ephemeral Windows NRPT and route fault-injection acceptance` 단계 **success**, 전체 job **success**. 위 코드 수정 없이 CI 게이트의 실행 조건만 강화했음.
+- **미해결:** 실제 OS 강제 종료 타이밍 전수 검증, 동시 다른 portable 구성 폴더의 동일 NRPT 소유권, 관리자 helper 실행 파일 교체 내성, 포괄적인 rollback 재시도 안전성, SoftEther 실기 반복 검증. 제품의 안정성 인증/릴리스 승격으로 오해하지 말 것.
+- **커밋 작성 정책:** WhoSia 명의 직접 변경, Actions 봇 소스 커밋 없음.
+
 ## 이후 기록 템플릿
 
 ```markdown
