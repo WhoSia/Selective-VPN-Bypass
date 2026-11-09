@@ -239,6 +239,16 @@
 - **검증 결과:** [Actions #38520125595](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/38520125595) Windows PowerShell NRPT 회귀 테스트 PASS, GUI 반복 동작 PASS, Windows x64 컴파일 PASS, ZIP artifact 업로드 PASS. 아티팩트 ID `11873860690`, 이름 `SelectiveVPNBypass-Portable-Windows-x64`. **검증 한계:** CI의 메모리 객체 판정이 Windows의 실제 `Add-DnsClientNrptRule`/Restore 동작까지 입증하지 않음. 실기에서 새 Portable을 받고 기존 설정을 보존한 상태로 Apply → Restore → Apply 반복해 검증할 필요가 있음. 사용자별 IP/DNS 값은 원장에 기록하지 않음.
 - **기여 정책:** 소스 커밋은 `WhoSia` 명의, Actions는 컴파일 전용이며 봇 소스 커밋 없음.
 
+## 2026-11-09 14:11 KST — 정적 코드 감사, 장애·보안·복구 위험 12건 식별 [REVIEWED / NOT PATCHED]
+
+- 전수 범위: `main.go`, `src/Core.ps1`, `src/Gui.ps1`, `src/Worker.ps1`, `tests/test-core.ps1`, `.github/workflows/build-windows.yml`, README. 완결된 감사 보고서는 [AUDIT_2026-11-09.md](AUDIT_2026-11-09.md).
+- 중대 3건: (1) OS 객체 생성 이후 상태 기록 전 크래시 시 orphan route/NRPT 위험, (2) 사용자 수정 가능한 PowerShell 파일 경로를 관리자 권한으로 재실행하는 신뢰 경계, (3) 단일 writer·transaction identity·concurrent apply/restore 보호 부재.
+- 높은 우선순위 4건: route 프리픽스만 검사하는 충돌 사전검증, 부분 Restore 후 상태 불일치, 도메인-IP/CDN/IPv6 변동, 인터페이스 alias 하드코딩.
+- 품질·설계 5건: `_v3.state.json`과 schema version=4 불일치, GUI/백엔드 결합, 실제 NRPT/라우트에 대한 fault injection 테스트 부족, CI 도구 SHA 미고정, 설정 저장 위치/진단 로그의 휴대성·프라이버시.
+- MCP-Hub `hub_discover_reviewed_skills`로 Ponytail v5.3.3 고정 소스 메타데이터를 확인했지만, `hub_get_tool_status`는 `callable_in_public_gateway=false`, `installed_in_chatgpt=false`를 반환. 따라서 **Ponytail 자동 검수를 실행했다고 표기하지 않는다**. 정적 소스 검토와 코드 위치/재현 시나리오 분석을 수행.
+- 이 감사의 GitHub 커밋은 문서 생성에 한정. **소스 로직·Actions·릴리스 변경 없음**. 실사용 성공 보고를 부정하지 않지만, 정식 안정판의 오류 복구 보장을 입증하지 못함.
+- 종료 조건: 관리자 helper 무결성, 저널/복구 멱등성, 프로세스 동시성 통제, 소유권 검증, 격리 Windows VM의 crash/failure matrix, 실제 DNS/라우트 반복 검증.
+
 ## 열린 검증 항목
 
 | 항목 | 기준 | 현재 판정 |
