@@ -94,6 +94,54 @@ try {
     throw 'Multi-namespace rules must not be adopted as exact matches.'
   }
   Write-Host 'NRPT reconciliation predicate PASS: owned exact, foreign, mismatched DNS, wrong namespace, mixed namespace.'
+  # Pure route identity and journal reconciliation regression tests.
+  $rec=[pscustomobject]@{prefix='192.0.2.10/32';gateway='192.0.2.1'}
+  $mockRoute=[pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.1';InterfaceIndex=9;RouteMetric=1}
+  if(-not (Test-ManagedRouteMatch $mockRoute $rec 9)){throw 'Exact managed route rejected'}
+  foreach($bad in @(
+    [pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.2';InterfaceIndex=9;RouteMetric=1},
+    [pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.1';InterfaceIndex=15;RouteMetric=1},
+    [pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.1';InterfaceIndex=9;RouteMetric=20}
+  )){
+    if(Test-ManagedRouteMatch $bad $rec 9){throw 'Unmanaged route was incorrectly accepted'}
+  }
+  $st=[pscustomobject]@{routes=@();pendingRoutes=@($rec)}
+  $pending=@(Route-Records $st)
+  if($pending.Count -ne 1 -or $pending[0].prefix -ne '192.0.2.10/32'){
+    throw 'Pending route was not available for crash recovery.'
+  }
+  $st.routes=@($rec)
+  if(@(Route-Records $st).Count -ne 1){throw 'Committed and pending records must deduplicate'}
+  $legacy=[pscustomobject]@{routes=@($rec)}
+  if(@(Route-Records $legacy).Count -ne 1){throw 'Legacy state without pendingRoutes is not handled'}
+  Write-Host 'Route journal tests PASS: pending/crash, dedupe, legacy, strict route tuple.'
+
+  # A separate PowerShell process must not acquire the same named mutex.
+  $lock=Enter-ConfigLock
+  try{
+    $probe=Join-Path $testDir 'lock-probe.ps1'
+    @'
+param([string]$Core,[string]$Dir)
+$ErrorActionPreference='Stop'
+. $Core -Action list -ConfigDir $Dir | Out-Null
+try {
+  $held=Enter-ConfigLock
+  if($null -ne $held){$held.ReleaseMutex();$held.Dispose()}
+  exit 7
+} catch {
+  if($_.Exception.Message -match 'Another operation is running'){exit 0}
+  exit 8
+}
+'@ | Set-Content -LiteralPath $probe -Encoding UTF8
+    $exe=Join-Path $PSHOME 'powershell.exe'
+    & $exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probe -Core $core -Dir $testDir
+    if($LASTEXITCODE -ne 0){throw "Independent process lock isolation failed: exit $LASTEXITCODE"}
+  }finally{
+    $lock.ReleaseMutex()
+    $lock.Dispose()
+  }
+  Write-Host 'Cross-process single-writer mutex PASS.'
+
   Write-Host "Empty defaults, domain/IP add, case normalization, persistence, remove and rejection PASS."
 } finally {
   Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue
