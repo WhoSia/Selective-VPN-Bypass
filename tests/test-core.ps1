@@ -142,6 +142,37 @@ try {
   }
   Write-Host 'Cross-process single-writer mutex PASS.'
 
+  # End-to-end Restore-Own with mocked Windows NetTCPIP cmdlets:
+  # same destination prefix, but one is owned and the other is foreign.
+  $script:removedRoutes=@()
+  function Get-NetAdapter {
+    [CmdletBinding()]
+    param([string]$Name)
+    return [pscustomobject]@{ifIndex=9;Name=$Name}
+  }
+  function Get-NetRoute {
+    [CmdletBinding()]
+    param([int]$InterfaceIndex,[string]$AddressFamily)
+    return @(
+      [pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.1';InterfaceIndex=9;RouteMetric=1},
+      [pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.254';InterfaceIndex=9;RouteMetric=1}
+    )
+  }
+  function Remove-NetRoute {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    param([object]$InputObject)
+    $script:removedRoutes+=,$InputObject
+  }
+  $journal=[ordered]@{version=5;wifiIndex=9;routes=@();pendingRoutes=@($rec);rules=@()}
+  Save-Json $StatePath $journal
+  Restore-Own | Out-Null
+  if($script:removedRoutes.Count -ne 1 -or $script:removedRoutes[0].NextHop -ne '192.0.2.1'){
+    throw 'Restore removed an unmanaged same-prefix route or missed pending route.'
+  }
+  if(Test-Path -LiteralPath $StatePath){throw 'Successful mocked Restore did not remove completed state file.'}
+  Write-Host 'Mocked Restore PASS: pending route removed, same-prefix foreign route retained.'
+
+
   Write-Host "Empty defaults, domain/IP add, case normalization, persistence, remove and rejection PASS."
 } finally {
   Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue
