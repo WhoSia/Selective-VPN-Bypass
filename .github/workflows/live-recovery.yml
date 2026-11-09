@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/Core.ps1'
+      - 'tests/test-core.ps1'
       - 'tests/test-live-recovery.ps1'
       - '.github/workflows/live-recovery.yml'
   workflow_dispatch:
