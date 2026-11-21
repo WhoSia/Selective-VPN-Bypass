@@ -257,6 +257,44 @@ try {
   if(Test-Path -LiteralPath $StatePath){throw 'Read-only inspector created or modified a recovery journal'}
   Write-Host 'Read-only recovery inspection command PASS: missing journal remains absent.'
 
+  # A broken file must not be silently repaired, overwritten, or treated as empty.
+  $originalConfig=Get-Content -LiteralPath $ConfigPath -Raw
+  try{
+    $broken='{"domains": ["example.com", }'
+    Set-Content -LiteralPath $ConfigPath -Value $broken -NoNewline -Encoding UTF8
+    if((Get-ConfigHealth) -ne 'INVALID'){throw 'Corrupt JSON was misreported as valid'}
+    $before=[IO.File]::ReadAllBytes($ConfigPath)
+    $diagnostic=@(& $core -Action inspect -ConfigDir $testDir 3>&1)
+    if(($diagnostic -join ' ') -notmatch 'Recovery inspection: CONFIG_INVALID'){
+      throw 'Inspector did not identify malformed config.'
+    }
+    $after=[IO.File]::ReadAllBytes($ConfigPath)
+    if(([Convert]::ToBase64String($before)) -cne ([Convert]::ToBase64String($after))){
+      throw 'Read-only inspection modified the malformed configuration'
+    }
+  }finally {
+    Set-Content -LiteralPath $ConfigPath -Value $originalConfig -NoNewline -Encoding UTF8
+  }
+  if((Get-ConfigHealth) -ne 'OK'){throw 'Valid configuration not recognized'}
+  $foreignOwned=[pscustomobject]@{
+    Name='other-portable-guid';Namespace=@('orphan.example');Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')
+  }
+  if(@(Get-UnattributedOwnedNrpt $null @($foreignOwned)).Count -ne 1){
+    throw 'Unattributed owner-tagged policy was hidden without a journal'
+  }
+  if(@(Get-UnattributedOwnedNrpt ([pscustomobject]@{
+    rules=@('known-guid');pendingRules=@()
+  }) @($foreignOwned)).Count -ne 1){
+    throw 'Unknown policy was treated as owned by this portable folder'
+  }
+  if(@(Get-UnattributedOwnedNrpt ([pscustomobject]@{
+    rules=@('other-portable-guid');pendingRules=@()
+  }) @($foreignOwned)).Count -ne 0){
+    throw 'Journal-known policy was counted as unattributed'
+  }
+  Write-Host 'Configuration and multi-portable diagnostics PASS: corrupted bytes preserved, unattributed owner tag signaled.'
+
+
 
   Write-Host "Empty defaults, domain/IP add, case normalization, persistence, remove and rejection PASS."
 } finally {
