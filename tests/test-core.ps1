@@ -248,6 +248,16 @@ try {
   if($unreadable.Code -ne 'UNKNOWN'){throw 'Malformed schema must be unknown'}
   Write-Host 'Recovery Inspector PASS: matched, no journal, empty journal, pending, missing, conflict, invalid schema.'
 
+  # Exercise public read-only action, including the normal CLI dispatch path.
+  if(Test-Path -LiteralPath $StatePath){throw 'Inspector CLI test requires absent journal'}
+  $output=@(& $core -Action inspect -ConfigDir $testDir)
+  if(($output -join ' ') -notmatch 'Recovery inspection: NO_JOURNAL'){
+    throw ("Read-only inspector dispatch failed: "+($output -join ' '))
+  }
+  if(Test-Path -LiteralPath $StatePath){throw 'Read-only inspector created or modified a recovery journal'}
+  Write-Host 'Read-only recovery inspection command PASS: missing journal remains absent.'
+
+
   Write-Host "Empty defaults, domain/IP add, case normalization, persistence, remove and rejection PASS."
 } finally {
   Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue
