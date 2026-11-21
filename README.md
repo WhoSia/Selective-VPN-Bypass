@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-22 KST):** [Windows portable: conservative configuration diagnostics and long-task UX](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44930698872) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · ZIP SHA-256 `81c0c66fd3fc2f10d11167af9de7a2faa723a216ea69590d94a3416d521a6e73`. PowerShell malformed-configuration/ownership tests, GUI initialization and repeated operations, Windows x64 Go build, artifact upload PASS. [Isolated Windows network recovery test](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44930567872) PASS. Not a live SoftEther or long-running-hang test.
+**Latest verified CI package (2026-11-22 KST):** [Windows portable: NRPT journal-bound ownership protection](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44933145046) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · inside ZIP SHA-256 `be94111153e46774b484ef1e080d5d0d95c223ff4c6fed3e82926069ca5d653f`. PowerShell tests, per-operation ownership collision tests, GUI regression, Windows x64 build and ZIP upload PASS. [Isolated Windows v6/v7 NRPT recovery integration](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44933145024) PASS. Not a security certification or live VPN guarantee.
 
 ## Features
 
@@ -50,6 +50,14 @@ Possible results are `NO_JOURNAL` (this folder has no journal), `MATCHED_SNAPSHO
 If Windows has owner-tagged NRPT policies not attributable to the journal for this portable folder, Inspect reports `UNATTRIBUTED_POLICIES` when no more urgent journal status is present. This is **not proof** that the policy belongs to another copy: it may be a stale rule. The app does not automatically adopt, remove, or overwrite those policies.
 
 For tasks taking longer than 30 seconds, the GUI explains that an operation is ongoing. Past 120 seconds it recommends read-only inspection after any interruption, without killing Apply/Restore automatically. These notices are advisory: there is no network transaction cancellation guarantee, and a long-running process can still require controlled diagnostics.
+
+## Journal-bound ownership (v7) and legacy recovery
+
+New `Apply` operations create a **version 7 journal** with a random operation identifier saved before Windows policy changes. The new NRPT rules use `Selective-VPN-Bypass-owned:<operation-UUID>` in their Comment field. Restore and Inspect require the exact identifier for these rules. A missing or invalid identifier in a v7 journal is an error, **not** a reason to fall back to legacy ownership.
+
+Older v6 (and earlier) journals continue to use the legacy Comment for Restore; their identity is less specific. Newly launched Apply operations **never automatically adopt a policy merely because it has the old owner tag**, even when DNS servers and namespace match. If an old orphaned policy remains, use Inspect and review it carefully before making system changes. The app does not delete foreign policies as part of this migration.
+
+An operation UUID is an **accidental-collision discriminator, not a cryptographic identity**. Other applications with administrator access can imitate this Comment, and an IPv4 route is not tagged with the NRPT owner identity. Different portable folders remain independent and may still conflict over routes. This release strengthens NRPT recovery boundaries but does not promise multi-instance isolation for all Windows network objects.
 
 ## Verification and development history
 
