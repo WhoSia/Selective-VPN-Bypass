@@ -349,6 +349,22 @@
 - **미해결 핵심:** ① 다른 portable 폴더/Windows 세션 간 경합 ② 불명확한 관리 NRPT 소유권 ③ 사용자 수정 가능한 저장 위치와 관리자 Helper 신뢰 경계 ④ 작업 타임아웃 부재 ⑤ 네트워크 변경 이후 상태·복구 UI 부재 ⑥ 실제 DPI/UAC/키보드/SoftEther 경로의 자동 검증 부재. 소스 감사만으로 보안 인증을 주장하지 않음.
 - **제약:** 이번 변경은 GUI·테스트·문서에 한정. Windows 라우트 또는 DNS 규칙을 변경하는 로직 자체는 수정하지 않음. 개인 네트워크의 실시간 설정, 프라이버시 민감 정보는 공개 기록에 저장하지 않음. GitHub Actions 봇 커밋 없음.
 
+## 2026-11-22 (GitHub 커밋·Actions 시각 기준) — Recovery Inspector v1, 보수적 복구 진단 [COMMITTED / CI PASS]
+
+- **요청·근거:** [2026-11-22 제품·실패모드 감사](AUDIT_2026-11-22.md)의 R-01/R-04/R-11/R-12/R-13. 상태 JSON 파일이 존재하는 것만으로 Apply 성공을 주장하지 않으며, 사용자가 Windows NRPT·라우트 설정을 직접 삭제하기 전에 읽기 전용 점검 근거를 제공.
+- **구현:** [`219579f`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/219579fd3741c61e3c2553a544a6f67f78f1bda0) — `src/Core.ps1`에 비관리자 `inspect` 액션과 `Inspect-JournalSnapshot` 함수 도입. 저널과 Windows NRPT/IPv4 라우트 snapshot을 대조하여 `NO_JOURNAL`, `MATCHED_SNAPSHOT`, `INCOMPLETE`, `MISMATCH`, `CONFLICT`, `UNKNOWN` 구분. 출력은 개인정보를 줄이기 위해 정책 이름/IP 대신 개수·원인 문구 중심. 오류 시에도 읽기 전용을 유지.
+- [`8af8994`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/8af8994e749f20828af21fe52c5cc8f1b3ebe0dc) — 일반 권한의 `src/Worker.ps1`에 `inspect` 전달 허용, 관리자 Helper는 기존처럼 Apply/Restore만 허용.
+- [`50edb79`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/50edb790a83d726e72fb8c69ef0e4f925764bb84) — GUI에 `Inspect` 버튼 추가·작업 중 비활성화. 실제 네트워크 설정을 변경하는 호출 없음.
+- [`c581f42`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/c581f428a8abb42575477f4a93c3403cbdd16bc1) — 분류 매트릭스 회귀 테스트 추가.
+- **실패 관측:** [Actions `44929343414`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44929343414)의 GUI 모의 Apply 단계가 실패했음. inspector의 분류 테스트는 PASS. 원본 실패 로그에 대한 출력 강화 [`d1c3ce5`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/d1c3ce5c5a1b9ccb757af243f97c2a2e1462d05a) 후 재실행 [`44929468956`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44929468956)은 전체 PASS. 반복성/환경 변동 가능성이 있으므로 이전 실패를 삭제하거나 재현성을 검증했다고 주장하지 않음.
+- [`f273802`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/f273802fb222ae01a07613257fdf266f44d1afa6) — **빈 저널도 정상으로 오판하지 않게 INCOMPLETE 판정**. [`2b86a79`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/2b86a79f1ae134fcda54dd222ec42c69dacb0c3f) — 해당 경계 테스트 보강.
+- [`45260b5`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/45260b55838613e163e2d709eb250ba171324a77) — 기존 Status 출력의 `Applied state`를 저널 존재 여부로 명확하게 교정.
+- [`2d86d00`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/2d86d00f451cfc9557c9bd7057581f5306f64cbb) — 실제 `inspect` 명령을 호출해 저널이 없을 때 `NO_JOURNAL` 반환·상태 파일 미생성 테스트 보강.
+- **최종 CI:** [Windows Portable Actions `44929618071`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44929618071) 전체 PASS. `Recovery Inspector PASS: matched, no journal, empty journal, pending, missing, conflict, invalid schema`, `Read-only recovery inspection command PASS`, GUI 반복 작업, Go 테스트, Windows x64 빌드·ZIP artifact 업로드 확인. artifact ID `14717017296`, 이름 `SelectiveVPNBypass-Portable-Windows-x64`, 내부 ZIP SHA-256 `3f5c0e3850937fbb62fb9a43b2e9ce7fb1c20443198daa1526cc637a4102a784`.
+- **격리 통합 CI:** [Actions `44929618046`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44929618046) 성공. 이 테스트는 예약용 객체를 사용한 Windows 라우트·NRPT 복구로, 이번 변경에서 라우팅 Apply/Restore 본체는 수정하지 않았음.
+- **한계/후속:** 완료 NRPT는 과거 저널에 Rule Name만 저장되어 있어 네임스페이스/DNS 서버의 완전 동일성까지 검증할 수 없음. `MATCHED_SNAPSHOT`은 단순 관측 일치이지 실제 접속·도메인 분리·안전 인증이 아님. 상태가 없을 때 다른 폴더의 정책 존재 여부를 결론낼 수 없으며, UAC·실제 화면 키 입력·오프라인 장시간 대기·다중 Portable 폴더 간 소유권은 추후 검증 필요.
+- WhoSia 명의 커밋만 작성하고, GitHub Actions[bot]의 소스 커밋 없음. 배포 아티팩트는 Actions 직접 다운로드 방식 유지.
+
 ## 이후 기록 템플릿
 
 ```markdown
