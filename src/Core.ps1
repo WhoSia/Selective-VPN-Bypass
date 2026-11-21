@@ -207,6 +207,42 @@ function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
   Missing=$missing;Conflicts=$conflict;Pending=$pendingCount
  }
 }
+# Read-only health checks: never normalize a malformed file by overwriting it.
+function Get-ConfigHealth {
+ if(-not (Test-Path -LiteralPath $ConfigPath)){return 'ABSENT'}
+ try{
+  $doc=Get-Content -LiteralPath $ConfigPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+  if($null -eq $doc -or $null -eq $doc.domains -or
+     $doc.domains -is [string] -or $doc.domains -isnot [array]){return 'INVALID'}
+  foreach($item in $doc.domains){
+   if($item -isnot [string]){return 'INVALID'}
+   [void](Normalize-Target $item)
+  }
+  return 'OK'
+ }catch{return 'INVALID'}
+}
+function Get-UnattributedOwnedNrpt($journal,$nrptRules) {
+ $named=@()
+ $pending=@()
+ if($null -ne $journal){
+  $named=@($journal.rules | Where-Object{$_})
+  $pending=@(Pending-NrptRecords $journal)
+ }
+ $other=@()
+ foreach($rule in @($nrptRules)){
+  if([string]$rule.Comment -cne $OwnerComment){continue}
+  if($named -contains ([string]$rule.Name)){continue}
+  $knownPending=$false
+  foreach($intent in $pending){
+   if(Test-CompatibleOwnedNrpt $rule ([string]$intent.namespace) @($intent.servers)){
+    $knownPending=$true
+    break
+   }
+  }
+  if(-not $knownPending){$other+=,$rule}
+ }
+ return $other
+}
 function Restore-Own {
  $st=State
  if(!$st){Write-Output 'No managed state.';return}
@@ -329,14 +365,25 @@ switch($Action){
    $allNrpt=@(Get-DnsClientNrptRule -ErrorAction Stop)
    $allRoutes=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction Stop)
    $report=Inspect-JournalSnapshot $state $allNrpt $allRoutes
-   Write-Output ("Recovery inspection: "+$report.Code)
+   $configHealth=Get-ConfigHealth
+   $unattributed=@(Get-UnattributedOwnedNrpt $state $allNrpt)
+   $code=$report.Code
+   if($unattributed.Count -gt 0 -and $code -in @('NO_JOURNAL','MATCHED_SNAPSHOT')){
+    $code='UNATTRIBUTED_POLICIES'
+   }
+   if($configHealth -eq 'INVALID'){$code='CONFIG_INVALID'}
+   Write-Output ("Recovery inspection: "+$code)
    Write-Output $report.Reason
+   Write-Output ("Saved list: "+$configHealth)
+   if($configHealth -eq 'INVALID'){
+    Write-Warning 'Saved exception list is unreadable or malformed. Original bytes preserved; do not overwrite or import blindly.'
+   }
+   if($unattributed.Count -gt 0){
+    Write-Warning ("Owner-tagged NRPT policies not attributable to this journal: "+$unattributed.Count+". May be a stale rule or another portable folder; ownership is NOT proven.")
+   }
    if($null -ne $state){
     Write-Output ("Recorded objects: DNS policies="+$report.Rules+" IPv4 routes="+$report.Routes)
     Write-Output ("Unfinished="+$report.Pending+" missing="+$report.Missing+" conflicts="+$report.Conflicts)
-   }else{
-    $tagged=@($allNrpt|Where-Object{[string]$_.Comment -ceq $OwnerComment})
-    if($tagged.Count){Write-Warning ("Other owned-tagged DNS policies visible: "+$tagged.Count+". Their original owner cannot be proven by this tag.")}
    }
    Write-Output 'No changes were made. A matching snapshot is not proof of browser routing or site access.'
   }catch{
