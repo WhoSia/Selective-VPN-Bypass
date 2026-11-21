@@ -267,7 +267,7 @@ switch($Action){
   $routes=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue|
    Where-Object DestinationPrefix -eq '0.0.0.0/0')
   $routes|Select-Object InterfaceAlias,NextHop,RouteMetric|Format-Table -AutoSize|Out-String|Write-Output
-  Write-Output ("Saved entries: "+@((Targets)).Count+"; Applied state: "+[bool](State))
+  Write-Output ("Saved entries: "+@((Targets)).Count+"; Recovery journal present (not proof of active routing): "+[bool](State))
   break
  }
  'dns'{
