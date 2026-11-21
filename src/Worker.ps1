@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 param(
   [Parameter(Mandatory=$true)][string]$BackendPath,
-  [Parameter(Mandatory=$true)][ValidateSet('list','add','remove','dns','status','apply','restore')][string]$Action,
+  [Parameter(Mandatory=$true)][ValidateSet('list','add','remove','dns','status','inspect','apply','restore')][string]$Action,
   [string]$Domain = '',
   [Parameter(Mandatory=$true)][string]$ConfigDir,
   [Parameter(Mandatory=$true)][string]$LogPath
