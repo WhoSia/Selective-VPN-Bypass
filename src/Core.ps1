@@ -119,9 +119,18 @@ function Lookup([string]$name,[string]$server){
  Where-Object {$_.Type -eq 'A' -and $_.Section -eq 'Answer' -and $_.Name.TrimEnd('.') -ieq $name -and $_.IPAddress}|
  Select-Object -ExpandProperty IPAddress -Unique)
 }
-function Test-CompatibleOwnedNrpt($rule,[string]$namespace,[string[]]$servers){
+# New journals own a unique NRPT Comment; legacy journals remain readable.
+function Get-JournalOwnerComment($journal) {
+ if($null -eq $journal -or $null -eq $journal.ownerId){return $OwnerComment}
+ $id=[guid]::Empty
+ if(-not [guid]::TryParse([string]$journal.ownerId,[ref]$id) -or $id -eq [guid]::Empty){
+  throw 'Invalid recovery journal owner identity. Preserve the file for inspection.'
+ }
+ return ($OwnerComment+':'+$id.ToString('D'))
+}
+function Test-CompatibleOwnedNrpt($rule,[string]$namespace,[string[]]$servers,[string]$expectedComment=$OwnerComment){
  if($null -eq $rule){return $false}
- if([string]$rule.Comment -cne $OwnerComment){return $false}
+ if([string]$rule.Comment -cne $expectedComment){return $false}
  if(@($rule.Namespace).Count -ne 1 -or [string](@($rule.Namespace)[0]) -cne $namespace){return $false}
  $actual=@($rule.NameServers|ForEach-Object{[string]$_}|Sort-Object -Unique)
  $expected=@($servers|ForEach-Object{[string]$_}|Sort-Object -Unique)
@@ -143,12 +152,12 @@ function Pending-NrptRecords($state){
  }
  return $items
 }
-function Find-PendingOwnedNrpt($intent){
+function Find-PendingOwnedNrpt($intent,[string]$expectedComment=$OwnerComment){
  $rules=@(Get-NamespaceRules ([string]$intent.namespace))
  if($rules.Count -eq 0){return @()}
  if($rules.Count -ne 1){throw "NRPT recovery ambiguous for $($intent.namespace): $($rules.Count) matching rules."}
  $r=$rules[0]
- if(-not (Test-CompatibleOwnedNrpt $r ([string]$intent.namespace) @($intent.servers))){
+ if(-not (Test-CompatibleOwnedNrpt $r ([string]$intent.namespace) @($intent.servers) $expectedComment)){
   throw "NRPT recovery ownership or DNS mismatch for $($intent.namespace). Manual review required."
  }
  return @($r)
@@ -168,18 +177,19 @@ function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
  if($rules.Count -eq 0 -and $pending.Count -eq 0 -and $routes.Count -eq 0){
   return [pscustomobject]@{Code='INCOMPLETE';Reason='An empty journal is present; there is no evidence of completed system changes.';Rules=0;Routes=0;Missing=0;Conflicts=0;Pending=0}
  }
+ $expectedComment=Get-JournalOwnerComment $journal
  $conflict=0;$missing=0;$unresolved=0
  foreach($ruleName in $rules){
   $found=@($nrptRules|Where-Object{[string]$_.Name -ceq [string]$ruleName})
   if($found.Count -gt 1){$conflict++;continue}
   if($found.Count -eq 0){$missing++;continue}
-  if([string]$found[0].Comment -cne $OwnerComment){$conflict++}
+  if([string]$found[0].Comment -cne $expectedComment){$conflict++}
  }
  foreach($intent in $pending){
   $matched=@($nrptRules|Where-Object{@($_.Namespace) -contains [string]$intent.namespace})
   if($matched.Count -gt 1){$conflict++;continue}
   if($matched.Count -eq 0){$unresolved++;continue}
-  if(-not (Test-CompatibleOwnedNrpt $matched[0] ([string]$intent.namespace) @($intent.servers))){$conflict++}
+  if(-not (Test-CompatibleOwnedNrpt $matched[0] ([string]$intent.namespace) @($intent.servers) $expectedComment)){$conflict++}
  }
  foreach($record in $routes){
   $prefixMatches=@($ipv4Routes|Where-Object{[string]$_.DestinationPrefix -eq [string]$record.prefix})
@@ -224,17 +234,18 @@ function Get-ConfigHealth {
 function Get-UnattributedOwnedNrpt($journal,$nrptRules) {
  $named=@()
  $pending=@()
+ $expectedComment=Get-JournalOwnerComment $journal
  if($null -ne $journal){
   $named=@($journal.rules | Where-Object{$_})
   $pending=@(Pending-NrptRecords $journal)
  }
  $other=@()
  foreach($rule in @($nrptRules)){
-  if([string]$rule.Comment -cne $OwnerComment){continue}
+  if([string]$rule.Comment -cne $OwnerComment -and -not ([string]$rule.Comment).StartsWith($OwnerComment+':',[StringComparison]::Ordinal)){continue}
   if($named -contains ([string]$rule.Name)){continue}
   $knownPending=$false
   foreach($intent in $pending){
-   if(Test-CompatibleOwnedNrpt $rule ([string]$intent.namespace) @($intent.servers)){
+   if(Test-CompatibleOwnedNrpt $rule ([string]$intent.namespace) @($intent.servers) $expectedComment){
     $knownPending=$true
     break
    }
@@ -247,18 +258,19 @@ function Restore-Own {
  $st=State
  if(!$st){Write-Output 'No managed state.';return}
  $errors=@()
+ $expectedComment=Get-JournalOwnerComment $st
  $knownRules=@($st.rules)
  foreach($name in $knownRules){
   try{
    $r=Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction SilentlyContinue
-   if($r -and $r.Comment -eq $OwnerComment){
+   if($r -and [string]$r.Comment -ceq $expectedComment){
     Remove-DnsClientNrptRule -Name ([string]$name) -Force -ErrorAction Stop|Out-Null
    }elseif($r){throw 'NRPT ownership mismatch'}
   }catch{$errors+="NRPT $name : $_"}
  }
  foreach($intent in @(Pending-NrptRecords $st)){
   try{
-   $matched=@(Find-PendingOwnedNrpt $intent)
+   $matched=@(Find-PendingOwnedNrpt $intent $expectedComment)
    foreach($r in $matched){
     if($knownRules -contains ([string]$r.Name)){continue}
     Remove-DnsClientNrptRule -Name ([string]$r.Name) -Force -ErrorAction Stop|Out-Null
@@ -428,13 +440,16 @@ switch($Action){
   }
   if(State){Restore-Own}
   if(!$ips.Count -and !$hostnames.Count){Write-Output 'No exceptions saved. Nothing to apply.';break}
-  $st=[ordered]@{version=6;wifiIndex=[int]$wifi.ifIndex;routes=@();pendingRoutes=@();rules=@();pendingRules=@()}
+  $st=[ordered]@{version=7;ownerId=([guid]::NewGuid().ToString('D'));wifiIndex=[int]$wifi.ifIndex;routes=@();pendingRoutes=@();rules=@()}
   Save-Json $StatePath $st
   try{
    foreach($n in $hostnames){
     foreach($ns in @($n,".$n")){
      $existing=@(Get-NamespaceRules $ns)
      if($existing.Count -gt 1){throw "Multiple DNS policies for $ns; manual review required."}
+     if($existing.Count -eq 1 -and $st.ownerId){
+      throw "Existing NRPT policy for $ns cannot be attributed to this new operation. No policy adopted or removed. Inspect before retrying."
+     }
      if($existing.Count -eq 1){
       $candidate=$existing[0]
       if(-not (Test-CompatibleOwnedNrpt $candidate $ns $dns)){
@@ -452,7 +467,7 @@ switch($Action){
      $intent=@{namespace=$ns;servers=@($dns)}
      $st.pendingRules+=,$intent
      Save-Json $StatePath $st
-     $r=Add-DnsClientNrptRule -Namespace $ns -NameServers $dns -Comment $OwnerComment -PassThru -ErrorAction Stop
+     $r=Add-DnsClientNrptRule -Namespace $ns -NameServers $dns -Comment (Get-JournalOwnerComment $st) -PassThru -ErrorAction Stop
      $st.rules+=([string]$r.Name)
      $st.pendingRules=@($st.pendingRules|Where-Object{$_.namespace -cne $ns})
      Save-Json $StatePath $st
