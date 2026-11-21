@@ -350,11 +350,24 @@ exit 0
     }
     if($script:running){throw 'Busy flag remained locked after failure'}
     if($entry.Text -ne 'busy.example'){throw 'Worker failure unexpectedly discarded pending user input'}
+    # The Add input must survive a real failed worker (invalid backend path).
+    $savedBackend=$backend
+    try {
+      $backend=Join-Path $DataDir 'does-not-exist-backend.ps1'
+      $entry.Text='retry.example'
+      Click-Button $add
+      Wait-Idle 'failed add worker'
+      if($log.Text -notmatch 'FAILED: add'){throw 'Failed Add was not shown as a failure'}
+      if($entry.Text -ne 'retry.example'){throw 'Failed Add unexpectedly erased user input'}
+      Assert-Items @('example.com','example.wiki','192.0.2.10') 'failed add must not persist entry'
+    } finally {
+      $backend=$savedBackend
+    }
     $entry.Text='example.net'; Click-Button $add; Wait-Idle 'add after restore'
     Assert-Items @('example.com','example.wiki','example.net','192.0.2.10') 'post-restore add'
     # Keyboard handler registration is covered by parser and GUI init.
     # Real key events require an interactive Windows desktop and are field tests.
-    Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, busy click, failed worker recovery, post-restore add, deferred input clear, honest journal label.'
+    Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, busy click, failed worker recovery, post-restore add, deferred input clear, failed Add retention, honest journal label.'
   }finally {
     $script:actionTimer.Stop()
     Remove-Item -LiteralPath $mock -Force -ErrorAction SilentlyContinue
