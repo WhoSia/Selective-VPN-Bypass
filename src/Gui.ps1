@@ -33,6 +33,7 @@ $script:activeProcess=$null
 $script:activeLogPath=$null
 $script:activeAction=$null
 $script:activeStarted=$null
+$script:pendingAddText=$null
 $form=New-Object Windows.Forms.Form
 $form.Text='Selective VPN Bypass - Preview'
 $form.Size=New-Object Drawing.Size(780,560)
@@ -119,7 +120,7 @@ $log.Dock='Fill';$log.Font=New-Object Drawing.Font('Consolas',9)
 $log.Text='No changes applied. Apply and Restore require administrator approval.'
 $right.Controls.Add($log,0,3)
 $foot=New-Object Windows.Forms.Label
-$foot.Dock='Fill';$foot.Text='IPv4 only. DNS/DoH, IPv6, shared CDN addresses may not follow these rules.'
+$foot.Dock='Fill';$foot.Text='IPv4 only. State file presence does not verify routing. DNS/DoH, IPv6 and CDN may differ.'
 $foot.ForeColor=[Drawing.Color]::DarkSlateGray
 $layout.Controls.Add($foot,0,2);$layout.SetColumnSpan($foot,2)
 function Update-Items {
@@ -136,7 +137,8 @@ function Update-Status {
  try {
   $v=Get-NetAdapter -Name 'VPN - VPN Client' -ErrorAction SilentlyContinue
   $w=Get-NetAdapter -Name 'Wi-Fi' -ErrorAction SilentlyContinue
-  $status.Text="SoftEther: $($v.Status)   |   Wi-Fi: $($w.Status)   |   Applied: $(Test-Path $state)"
+  $stateLabel=if(Test-Path -LiteralPath $state){"present (unverified)"}else{"absent"}
+  $status.Text="SoftEther: $($v.Status) | Wi-Fi: $($w.Status) | Journal: $stateLabel"
  }catch{$status.Text='Network status unavailable'}
 }
 function Valid-Target([string]$value) {
@@ -168,6 +170,9 @@ $script:actionTimer.Add_Tick({
       return
     }
     $exitCode=$script:activeProcess.ExitCode
+    if($script:activeAction -eq "add" -and $exitCode -eq 0 -and $null -ne $script:pendingAddText){
+      if($entry.Text -ceq $script:pendingAddText){$entry.Clear()}
+    }
     if(Test-Path -LiteralPath $script:activeLogPath){
       $output=Get-Content -LiteralPath $script:activeLogPath -Raw -ErrorAction Stop
       if($exitCode -eq 0){$log.Text="Completed: $($script:activeAction)"+[Environment]::NewLine+$output}
@@ -182,6 +187,7 @@ $script:actionTimer.Add_Tick({
       if($script:activeLogPath){Remove-Item -LiteralPath $script:activeLogPath -Force -ErrorAction SilentlyContinue}
       $script:activeProcess=$null
       $script:activeAction=$null
+      $script:pendingAddText=$null
       $script:activeLogPath=$null
       $script:running=$false
       Set-UiBusy $false
@@ -241,7 +247,7 @@ function Run-Action([string]$action,[string]$target='') {
   }
 }
 $add.Add_Click({
- try{$v=Valid-Target $entry.Text;if(Run-Action 'add' $v){$entry.Clear()}}
+ try{$v=Valid-Target $entry.Text;if(Run-Action 'add' $v){$script:pendingAddText=$entry.Text}}
  catch{if($InteractionTest){throw}else{[Windows.Forms.MessageBox]::Show($_.Exception.Message,'Invalid entry')|Out-Null}}
 })
 $remove.Add_Click({if($null -ne $items.SelectedItem){Run-Action 'remove' ([string]$items.SelectedItem)}})
@@ -315,6 +321,7 @@ exit 0
       [void]$onClick.Invoke($button,@([EventArgs]::Empty))
     }
     $entry.Text='example.com'; Click-Button $add; Wait-Idle 'first add'
+    if($entry.Text -ne ''){throw 'Input not cleared after successful add'}
     Assert-Items @('example.com') 'first add'
     $entry.Text='example.kr'; Click-Button $add; Wait-Idle 'second add'
     $entry.Text='example.wiki'; Click-Button $add; Wait-Idle 'third add'
@@ -342,11 +349,12 @@ exit 0
       throw 'Failed worker result not displayed correctly'
     }
     if($script:running){throw 'Busy flag remained locked after failure'}
+    if($entry.Text -ne 'busy.example'){throw 'Worker failure unexpectedly discarded pending user input'}
     $entry.Text='example.net'; Click-Button $add; Wait-Idle 'add after restore'
     Assert-Items @('example.com','example.wiki','example.net','192.0.2.10') 'post-restore add'
     # Keyboard handler registration is covered by parser and GUI init.
     # Real key events require an interactive Windows desktop and are field tests.
-    Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, busy click, failed worker recovery, post-restore add.'
+    Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, busy click, failed worker recovery, post-restore add, deferred input clear, honest journal label.'
   }finally {
     $script:actionTimer.Stop()
     Remove-Item -LiteralPath $mock -Force -ErrorAction SilentlyContinue
@@ -358,6 +366,7 @@ if ($SmokeTest) {
   if ($items.Items.Count -ne 0) { throw 'Smoke test requires an empty configuration list.' }
   if ($add.Text -ne 'Add' -or $remove.Text -ne 'Remove selected') { throw 'Missing list controls.' }
   if ($top[1][0].Text -ne 'Apply' -or $top[1][1].Text -ne 'Restore') { throw 'Missing action controls.' }
+  if ($status.Text -match 'Applied: True|Applied: False') { throw 'Status misrepresents journal presence as verified application.' }
   Write-Output 'GUI controls initialization PASS (no interactive display or DPI test).'
   $form.Dispose()
   return
