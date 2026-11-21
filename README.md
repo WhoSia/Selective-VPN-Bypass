@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-22 KST):** [Windows portable: read-only Recovery Inspector](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44929618071) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · inside ZIP SHA-256 `3f5c0e3850937fbb62fb9a43b2e9ce7fb1c20443198daa1526cc637a4102a784`. PowerShell classification/CLI tests, WinForms regression, Go tests, Windows x64 compile and upload PASS. [Isolated Windows NRPT/route recovery test](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44929618046) also PASS. No actual user SoftEther/UI keyboard/UAC guarantee.
+**Latest verified CI package (2026-11-22 KST):** [Windows portable: conservative configuration diagnostics and long-task UX](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44930698872) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · ZIP SHA-256 `81c0c66fd3fc2f10d11167af9de7a2faa723a216ea69590d94a3416d521a6e73`. PowerShell malformed-configuration/ownership tests, GUI initialization and repeated operations, Windows x64 Go build, artifact upload PASS. [Isolated Windows network recovery test](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44930567872) PASS. Not a live SoftEther or long-running-hang test.
 
 ## Features
 
@@ -42,6 +42,14 @@ Use the **Inspect** button to compare this portable folder's saved recovery jour
 Possible results are `NO_JOURNAL` (this folder has no journal), `MATCHED_SNAPSHOT` (recorded objects appear present, **not** proof of actual site routing), `INCOMPLETE` (pending operations), `MISMATCH` (recorded objects not found), `CONFLICT` (incompatible objects), and `UNKNOWN` (unreadable journal or insufficient observation). The output reports counts rather than including the domain/IP names from the journal.
 
 **Do not erase the journal or copy one portable folder's state into another** just because the inspector reports a mismatch. A previous installation or third-party software may still own overlapping Windows objects. The inspector intentionally never attempts automatic cleanup.
+
+## Configuration health, ownership hints and long operations
+
+**Inspect** now distinguishes a malformed saved exception JSON from a missing journal. A malformed list reports `CONFIG_INVALID`; the original bytes are left untouched and Add/Remove are disabled in the GUI until the file is repaired independently. Do not replace a corrupted file with an empty list without first preserving and inspecting it.
+
+If Windows has owner-tagged NRPT policies not attributable to the journal for this portable folder, Inspect reports `UNATTRIBUTED_POLICIES` when no more urgent journal status is present. This is **not proof** that the policy belongs to another copy: it may be a stale rule. The app does not automatically adopt, remove, or overwrite those policies.
+
+For tasks taking longer than 30 seconds, the GUI explains that an operation is ongoing. Past 120 seconds it recommends read-only inspection after any interruption, without killing Apply/Restore automatically. These notices are advisory: there is no network transaction cancellation guarantee, and a long-running process can still require controlled diagnostics.
 
 ## Verification and development history
 
