@@ -165,6 +165,9 @@ function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
     $null -eq $journal.rules -or $null -eq $journal.routes){
   return [pscustomobject]@{Code='UNKNOWN';Reason='Unrecognized or incomplete journal schema. Do not overwrite it.';Rules=$rules.Count;Routes=$routes.Count}
  }
+ if($rules.Count -eq 0 -and $pending.Count -eq 0 -and $routes.Count -eq 0){
+  return [pscustomobject]@{Code='INCOMPLETE';Reason='An empty journal is present; there is no evidence of completed system changes.';Rules=0;Routes=0;Missing=0;Conflicts=0;Pending=0}
+ }
  $conflict=0;$missing=0;$unresolved=0
  foreach($ruleName in $rules){
   $found=@($nrptRules|Where-Object{[string]$_.Name -ceq [string]$ruleName})
