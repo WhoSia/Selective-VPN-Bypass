@@ -340,7 +340,7 @@ exit 0
         if($entry.Text -ne 'busy.example'){throw 'Busy add click discarded text'}
       }
       Wait-Idle "apply cycle $i"
-      if($log.Text -notmatch "SIMULATED apply SUCCESS"){throw 'Simulated apply did not complete'}
+      if($log.Text -notmatch "SIMULATED apply SUCCESS"){throw ("Simulated apply did not complete: "+$log.Text)}
       Click-Button ($top[1][1]); Wait-Idle "restore cycle $i"
       if($log.Text -notmatch "SIMULATED restore SUCCESS"){throw 'Simulated restore did not complete'}
     }
