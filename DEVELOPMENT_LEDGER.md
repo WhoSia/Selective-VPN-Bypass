@@ -365,6 +365,18 @@
 - **한계/후속:** 완료 NRPT는 과거 저널에 Rule Name만 저장되어 있어 네임스페이스/DNS 서버의 완전 동일성까지 검증할 수 없음. `MATCHED_SNAPSHOT`은 단순 관측 일치이지 실제 접속·도메인 분리·안전 인증이 아님. 상태가 없을 때 다른 폴더의 정책 존재 여부를 결론낼 수 없으며, UAC·실제 화면 키 입력·오프라인 장시간 대기·다중 Portable 폴더 간 소유권은 추후 검증 필요.
 - WhoSia 명의 커밋만 작성하고, GitHub Actions[bot]의 소스 커밋 없음. 배포 아티팩트는 Actions 직접 다운로드 방식 유지.
 
+## 2026-11-22 — 손상 설정·귀속 불명 NRPT 정책·장시간 작업 UX 개선 [COMMITTED / CI PASS]
+
+- **이번 개발 목표:** 지난 감사에서 남긴 ① 설정 파일 손상 시 데이터 보존 및 안전 진단 ② 다른 Portable 폴더와의 잠재적 NRPT 소유권 충돌 탐지 ③ 장시간 작업 중 사용자 혼란 완화. 기존 DNS/라우팅 정책을 적용하거나 삭제하는 본체는 변경하지 않았다.
+- [`37963b7`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/37963b712e63e9fad34a049aad3fdad34642bb3c): `Core.ps1`에 `Get-ConfigHealth`(ABSENT/OK/INVALID) 및 `Get-UnattributedOwnedNrpt` 도입. Inspect 실행 시 손상 JSON은 `CONFIG_INVALID`, 현재 저널에 귀속되지 않는 owner-tagged NRPT 정책은 중대한 저널 오류가 없을 때 `UNATTRIBUTED_POLICIES`로 표시. 후자는 **타 설치본이라는 증명이 아니며**, 생성자 불명 또는 잔존 정책일 수 있음을 경고. 자동 채택·삭제 금지.
+- [`4357f8c`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/4357f8cadb9e41c142dffb5336ec2a0d03ff21ab): 고의로 손상한 JSON 바이트의 검사 전후 동일성, 정상 파일 인식, 관리 저널로 귀속되지 않는 NRPT 소유 태그와 실제로 알려진 Rule ID의 구분을 PowerShell 회귀 테스트에 추가.
+- [`86a33ce`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/86a33ce39c30eb2dce8390930c0a3553f46d12ed): GUI 실행 시간이 30초·120초 이상이면 조작 중단 및 후속 Inspect 경로를 설명. Apply/Restore 강제 종료로 중간 상태를 악화시키지 않기 위해 자동 타임아웃/종료는 추가하지 않음. GUI 모의 작업 테스트에 경계 문구 검사 포함.
+- [`5954177`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/5954177b228bee97b84bc865790d443e2bcf700b): WinForms가 손상된 예외 JSON을 빈 목록처럼 보이지 않도록 `Saved list: INVALID` 표시 및 Add/Remove 임시 비활성화, 원본 보존. 복구 후 정상 동작으로 돌아오는 회귀 테스트 추가.
+- **검증:** [Windows Portable CI `44930698872`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44930698872) 전체 PASS. Windows PowerShell 회귀·GUI 초기화·반복 조작·Go 단위 테스트·Windows x64 컴파일·ZIP 업로드 성공. Artifact `SelectiveVPNBypass-Portable-Windows-x64`, ID `14717426921`, 내부 ZIP SHA-256 `81c0c66fd3fc2f10d11167af9de7a2faa723a216ea69590d94a3416d521a6e73`. 격리 실기 [`44930567872`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44930567872) PASS, 테스트용 격리 네트워크의 기존 Restore 범위이며 이번 GUI 상태 안내의 현장 검증은 아님.
+- **불충분한 증거:** 여러 Portable 폴더 간 '소유자 식별'은 실제로 해결되지 않음(서명된 설치 ID 부재). 단지 현재 저널이 설명하지 못하는 owner-tagged NRPT의 존재를 경고. 실제 Windows 다중 인스턴스·사용자 전환·UAC·장시간 DNS 조회 장애는 미검증. `Get-ConfigHealth`는 JSON 구조·대상 항목 형식만 검사하며 저장/복구 전체 의미의 강한 무결성 검증이 아님.
+- **다음 개발 판단:** OS 전역 설치 인스턴스 정체성/소유권 및 별도 Portable 폴더 간 교차 확인, 초기/장기 작업의 단계별 진행 이벤트, 보존용 복구 스냅샷과 명시적 내보내기/가져오기 UI(적용 상태 파일은 무단 이관 금지). 안정판 판정은 계속 보류.
+- 기존 `main` 변경; Author/Committer WhoSia, Actions 봇 소스 커밋 금지 지속.
+
 ## 이후 기록 템플릿
 
 ```markdown
