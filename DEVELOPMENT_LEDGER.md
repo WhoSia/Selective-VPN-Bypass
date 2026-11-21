@@ -377,6 +377,19 @@
 - **다음 개발 판단:** OS 전역 설치 인스턴스 정체성/소유권 및 별도 Portable 폴더 간 교차 확인, 초기/장기 작업의 단계별 진행 이벤트, 보존용 복구 스냅샷과 명시적 내보내기/가져오기 UI(적용 상태 파일은 무단 이관 금지). 안정판 판정은 계속 보류.
 - 기존 `main` 변경; Author/Committer WhoSia, Actions 봇 소스 커밋 금지 지속.
 
+## 2026-11-22 — NRPT v7 작업별 소유권 및 레거시 보존 감사 [COMMITTED / CI PASS]
+
+- **시작 상태:** `Core.ps1`이 NRPT 규칙 Comment로 `Selective-VPN-Bypass-owned`를 공통 사용하여 서로 다른 Portable 폴더가 생성한 규칙을 정확하게 구별할 수 없었음. 이름·DNS 서버만 같은 기존 규칙을 신규 Apply가 채택할 수 있었음. Windows IPv4 Route 자체에는 애플리케이션 소유권 필드가 없어 별도 취급한다.
+- **소스 변경:** [`a4accd8`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/a4accd8bf9dade4baf47529e1c11d9f6da40afe9)에서 `Get-JournalOwnerComment` 도입. 신규 Apply는 `version=7`, `ownerId=GUID`를 기록하고 NRPT Comment를 `Selective-VPN-Bypass-owned:<GUID>`로 설정. Restore와 Inspector의 NRPT 소유권 대조에 예상 Comment를 전달. `Get-UnattributedOwnedNrpt`는 신규·레거시 소유권 표시를 모두 감지하지만 근거 없는 소유권 확정은 하지 않음.
+- [`1823c5b`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/1823c5b7e3dc3a048b71b1f9b9b31e251e2833a2)에서 신규 Apply의 레거시 orphan 자동 채택 경로 제거. 출처 불명 동일 네임스페이스 NRPT가 있으면 중단하며 삭제하지 않음. 구형 v6 저널의 Restore 경로는 그대로 유지.
+- **모의 회귀:** [`1ded714`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/1ded714558edb32f2b83d3750940a43aeea035e9)에서 같은 namespace/DNS의 두 GUID를 만들고 다른 인스턴스 정책 복구 거부·현재 저널 보존·정확 일치 규칙 복구·잘못된 GUID 거부·레거시 동작 유지 테스트 추가.
+- **Windows 실제 NRPT 통합:** [`d3b0891`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/d3b089124f788217ae94f8ea24be5267d0a4ab1e)에서 격리 GitHub-hosted Windows runner 예약 `.invalid` 네임스페이스에 신규 v7 Comment 정책을 실제 생성. 이종 owner GUID의 규칙은 Restore가 삭제하지 않고 저널을 유지하며, 동일 GUID의 규칙은 복구. 예외 정리도 예약 네임스페이스+앱 태그 범위로 한정.
+- **추가 fail-closed 보강:** [`c9a1c7b`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/c9a1c7bdff7ee39579ff2cacd3cf810d0426faad)에서 **v7 저널의 ownerId 누락을 구형 Comment로 강등시키지 않도록 예외 처리**. [`f67c9f6`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/f67c9f68990ebb40060b8305d8f9ef4006c1cff7)에서 잘못된/누락된 식별자 거부와 v6 호환 회귀 테스트.
+- **검증 근거:** [Windows Build `44933145046`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44933145046) 전체 PASS. PowerShell 회귀 로그 `Per-operation ownership PASS: two-instance conflict, matching recovery, invalid GUID, legacy behavior.`, WinForms 반복 회귀 및 Windows x64 컴파일·아티팩트 업로드 PASS. Artifact `SelectiveVPNBypass-Portable-Windows-x64`, ID `14718402949`. ZIP SHA-256 `be94111153e46774b484ef1e080d5d0d95c223ff4c6fed3e82926069ca5d653f`. [격리 Windows 복구 `44933145024`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44933145024) 전체 PASS.
+- **신뢰 보장 한계:** GUID/NRPT Comment는 같은 이름을 우연히 공유하는 문제를 줄이지만 암호학적 신원 확인이 아니며 관리자 권한 앱은 이를 모방할 수 있음. IPv4 route의 생성 주체와 각 폴더를 연결하는 강한 검증이 아직 없고, 동일 tuple 라우트 소유권·복수 프로세스/서로 다른 세션·전원 종료는 미해결. 여러 폴더에서 동일 호스트 정책 관리 사용은 계속 지양.
+- **사용자 마이그레이션:** 신규 Apply가 레거시 orphan 규칙을 자동 채택하지 않기 때문에 기존 복구 저널 없이 규칙만 남은 환경에서는 수동 진단이 필요할 수 있음. 기존 설정·저널을 보존하고 Inspect를 우선 실행해야 함. 무단 삭제·자동 상태 파일 이동 없음.
+- **GitHub 운영:** `main`에 WhoSia 직접 커밋, GitHub Actions[bot] 소스 기여 없음. ZIP/EXE는 GitHub Actions 아티팩트만 배포.
+
 ## 이후 기록 템플릿
 
 ```markdown
