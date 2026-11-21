@@ -214,6 +214,37 @@ try {
 
 
 
+  # Read-only Recovery Inspector classification matrix (no network writes).
+  $mockOwned=[pscustomobject]@{
+    Name='managed-rule';Namespace=@('example.org');Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')
+  }
+  $mockOwnedRoute=[pscustomobject]@{
+    DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.1';InterfaceIndex=9;RouteMetric=1
+  }
+  $complete=[pscustomobject]@{
+    version=6;wifiIndex=9;rules=@('managed-rule');pendingRules=@();
+    routes=@($rec);pendingRoutes=@()
+  }
+  $matched=Inspect-JournalSnapshot $complete @($mockOwned) @($mockOwnedRoute)
+  if($matched.Code -ne 'MATCHED_SNAPSHOT'){throw "Expected matching snapshot, got $($matched.Code)"}
+  $none=Inspect-JournalSnapshot $null @() @()
+  if($none.Code -ne 'NO_JOURNAL'){throw 'No journal must not be treated as verified clean'}
+  $partial=Inspect-JournalSnapshot ([pscustomobject]@{
+    version=6;wifiIndex=9;rules=@();routes=@();pendingRules=@(
+      [pscustomobject]@{namespace='example.org';servers=@('192.0.2.53')}
+    );pendingRoutes=@()
+  }) @($mockOwned) @()
+  if($partial.Code -ne 'INCOMPLETE'){throw 'Pending DNS journal must be incomplete'}
+  $missing=Inspect-JournalSnapshot $complete @() @($mockOwnedRoute)
+  if($missing.Code -ne 'MISMATCH'){throw 'Missing recorded DNS rule must be mismatch'}
+  $conflict=Inspect-JournalSnapshot $complete @(
+    [pscustomobject]@{Name='managed-rule';Namespace=@('example.org');Comment='foreign';NameServers=@('192.0.2.53')}
+  ) @($mockOwnedRoute)
+  if($conflict.Code -ne 'CONFLICT'){throw 'Foreign DNS with same ID must be conflict'}
+  $unreadable=Inspect-JournalSnapshot ([pscustomobject]@{version=6;wifiIndex=9}) @() @()
+  if($unreadable.Code -ne 'UNKNOWN'){throw 'Malformed schema must be unknown'}
+  Write-Host 'Recovery Inspector PASS: matched, no journal, pending, missing, conflict, invalid schema.'
+
   Write-Host "Empty defaults, domain/IP add, case normalization, persistence, remove and rejection PASS."
 } finally {
   Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue
