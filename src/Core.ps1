@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 param(
- [ValidateSet('list','add','remove','dns','status','apply','restore')][string]$Action='status',
+ [ValidateSet('list','add','remove','dns','status','inspect','apply','restore')][string]$Action='status',
  [string]$Domain='',
  [string]$ConfigDir=$PSScriptRoot
 )
@@ -153,6 +153,57 @@ function Find-PendingOwnedNrpt($intent){
  }
  return @($r)
 }
+# Read-only inspection of a saved journal against Windows snapshots.
+# No route or DNS mutation is performed. Do not mistake a matching snapshot
+# for proof of application-level traffic isolation.
+function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
+ if($null -eq $journal){return [pscustomobject]@{Code='NO_JOURNAL';Reason='No local recovery journal. Absence of OS policies is not verified.';Rules=0;Routes=0}}
+ $rules=@($journal.rules|Where-Object{$_})
+ $pending=@(Pending-NrptRecords $journal)
+ $routes=@(Route-Records $journal)
+ if($null -eq $journal.version -or $null -eq $journal.wifiIndex -or
+    $null -eq $journal.rules -or $null -eq $journal.routes){
+  return [pscustomobject]@{Code='UNKNOWN';Reason='Unrecognized or incomplete journal schema. Do not overwrite it.';Rules=$rules.Count;Routes=$routes.Count}
+ }
+ $conflict=0;$missing=0;$unresolved=0
+ foreach($ruleName in $rules){
+  $found=@($nrptRules|Where-Object{[string]$_.Name -ceq [string]$ruleName})
+  if($found.Count -gt 1){$conflict++;continue}
+  if($found.Count -eq 0){$missing++;continue}
+  if([string]$found[0].Comment -cne $OwnerComment){$conflict++}
+ }
+ foreach($intent in $pending){
+  $matched=@($nrptRules|Where-Object{@($_.Namespace) -contains [string]$intent.namespace})
+  if($matched.Count -gt 1){$conflict++;continue}
+  if($matched.Count -eq 0){$unresolved++;continue}
+  if(-not (Test-CompatibleOwnedNrpt $matched[0] ([string]$intent.namespace) @($intent.servers))){$conflict++}
+ }
+ foreach($record in $routes){
+  $prefixMatches=@($ipv4Routes|Where-Object{[string]$_.DestinationPrefix -eq [string]$record.prefix})
+  $matching=@($prefixMatches|Where-Object{Test-ManagedRouteMatch $_ $record ([int]$journal.wifiIndex)})
+  if($matching.Count -eq 0){$missing++;continue}
+  if($matching.Count -gt 1 -or $prefixMatches.Count -ne $matching.Count){$conflict++}
+ }
+ $pendingCount=@($journal.pendingRoutes|Where-Object{$_}).Count+$pending.Count
+ $code='MATCHED_SNAPSHOT'
+ $reason='Recorded objects match this snapshot. Actual browser traffic has not been verified.'
+ if($pendingCount -gt 0 -or $unresolved -gt 0){
+  $code='INCOMPLETE'
+  $reason='Unfinished journal entries exist. Inspect before reapplying or moving files.'
+ }
+ if($missing -gt 0){
+  $code='MISMATCH'
+  $reason='One or more recorded objects are missing. Inspect network changes and retained state.'
+ }
+ if($conflict -gt 0){
+  $code='CONFLICT'
+  $reason='Unrecognized or incompatible system objects found. No modifications performed.'
+ }
+ return [pscustomobject]@{
+  Code=$code;Reason=$reason;Rules=$rules.Count+$pending.Count;Routes=$routes.Count;
+  Missing=$missing;Conflicts=$conflict;Pending=$pendingCount
+ }
+}
 function Restore-Own {
  $st=State
  if(!$st){Write-Output 'No managed state.';return}
@@ -267,6 +318,29 @@ switch($Action){
    }
    Write-Output 'Browser DoH, existing sockets and site-side VPN checks are not observable here.'
   };break
+ }
+ 'inspect'{
+  # Inspection is deliberately non-elevated and mutation-free.
+  try{
+   $state=State
+   $allNrpt=@(Get-DnsClientNrptRule -ErrorAction Stop)
+   $allRoutes=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction Stop)
+   $report=Inspect-JournalSnapshot $state $allNrpt $allRoutes
+   Write-Output ("Recovery inspection: "+$report.Code)
+   Write-Output $report.Reason
+   if($null -ne $state){
+    Write-Output ("Recorded objects: DNS policies="+$report.Rules+" IPv4 routes="+$report.Routes)
+    Write-Output ("Unfinished="+$report.Pending+" missing="+$report.Missing+" conflicts="+$report.Conflicts)
+   }else{
+    $tagged=@($allNrpt|Where-Object{[string]$_.Comment -ceq $OwnerComment})
+    if($tagged.Count){Write-Warning ("Other owned-tagged DNS policies visible: "+$tagged.Count+". Their original owner cannot be proven by this tag.")}
+   }
+   Write-Output 'No changes were made. A matching snapshot is not proof of browser routing or site access.'
+  }catch{
+   Write-Warning 'Recovery inspection: UNKNOWN (journal unreadable or Windows inspection unavailable).'
+   Write-Output 'No changes were made. Preserve configuration files; do not delete network rules without verifying ownership.'
+  }
+  break
  }
  'restore'{Require-Admin;Restore-Own;break}
  'apply'{
