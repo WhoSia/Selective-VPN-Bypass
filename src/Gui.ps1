@@ -34,6 +34,7 @@ $script:activeLogPath=$null
 $script:activeAction=$null
 $script:activeStarted=$null
 $script:pendingAddText=$null
+$script:configInvalid=$false
 $form=New-Object Windows.Forms.Form
 $form.Text='Selective VPN Bypass - Preview'
 $form.Size=New-Object Drawing.Size(780,560)
@@ -125,20 +126,31 @@ $foot.ForeColor=[Drawing.Color]::DarkSlateGray
 $layout.Controls.Add($foot,0,2);$layout.SetColumnSpan($foot,2)
 function Update-Items {
  $items.Items.Clear()
+ $script:configInvalid=$false
  if(Test-Path -LiteralPath $config){
   try {
-   $obj=Get-Content -LiteralPath $config -Raw | ConvertFrom-Json
-   foreach($v in @($obj.domains|Sort-Object -Unique)){if($v){[void]$items.Items.Add([string]$v)}}
-  }catch{$log.Text="Invalid local configuration: $($_.Exception.Message)"}
+   $obj=Get-Content -LiteralPath $config -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+   if($null -eq $obj.domains -or $obj.domains -isnot [array]){throw 'Expected domains array.'}
+   foreach($v in @($obj.domains|Sort-Object -Unique)){
+    if($v -isnot [string] -or [string]::IsNullOrWhiteSpace($v)){throw 'Invalid entry type.'}
+    [void]$items.Items.Add([string]$v)
+   }
+  }catch{
+   $script:configInvalid=$true
+   $items.Items.Clear()
+   $log.Text="Saved list is unreadable. Original file preserved; no automatic repair. Use Inspect to diagnose before editing."
+  }
  }
- $remove.Enabled=($items.SelectedIndex -ge 0 -and -not $script:running)
+ $add.Enabled=(-not $script:configInvalid -and -not $script:running)
+ $remove.Enabled=($items.SelectedIndex -ge 0 -and -not $script:running -and -not $script:configInvalid)
 }
 function Update-Status {
  try {
   $v=Get-NetAdapter -Name 'VPN - VPN Client' -ErrorAction SilentlyContinue
   $w=Get-NetAdapter -Name 'Wi-Fi' -ErrorAction SilentlyContinue
   $stateLabel=if(Test-Path -LiteralPath $state){"present (unverified)"}else{"absent"}
-  $status.Text="SoftEther: $($v.Status) | Wi-Fi: $($w.Status) | Journal: $stateLabel"
+  $savedLabel=if($script:configInvalid){'INVALID'}else{'readable/absent'}
+  $status.Text="SoftEther: $($v.Status) | Wi-Fi: $($w.Status) | Journal: $stateLabel | Saved list: $savedLabel"
  }catch{$status.Text='Network status unavailable'}
 }
 function Valid-Target([string]$value) {
@@ -155,8 +167,9 @@ function Set-UiBusy([bool]$busy) {
   foreach($button in @($add,$top[1][0],$top[1][1],$other[1][0],$other[1][1],$other[1][2])){
     $button.Enabled = -not $busy
   }
-  $remove.Enabled=(-not $busy -and $items.SelectedIndex -ge 0)
-  $entry.Enabled=-not $busy
+  $add.Enabled=(-not $busy -and -not $script:configInvalid)
+  $remove.Enabled=(-not $busy -and $items.SelectedIndex -ge 0 -and -not $script:configInvalid)
+  $entry.Enabled=(-not $busy -and -not $script:configInvalid)
 }
 # Never force-terminate Apply/Restore because it may leave an incomplete
 # Windows operation. Make long-running work and next steps explicit instead.
@@ -384,6 +397,19 @@ exit 0
     }
     $entry.Text='example.net'; Click-Button $add; Wait-Idle 'add after restore'
     Assert-Items @('example.com','example.wiki','example.net','192.0.2.10') 'post-restore add'
+    # A malformed saved list must not look like an editable empty list.
+    $goodConfig=Get-Content -LiteralPath $config -Raw
+    try{
+      '{"domains":[' | Set-Content -LiteralPath $config -Encoding UTF8
+      Update-Items;Update-Status
+      if(-not $script:configInvalid -or $add.Enabled -or $status.Text -notmatch 'Saved list: INVALID'){
+        throw 'Malformed saved list was not exposed as read-only invalid state'
+      }
+    }finally{
+      Set-Content -LiteralPath $config -Value $goodConfig -NoNewline -Encoding UTF8
+      Update-Items;Update-Status
+    }
+    if($script:configInvalid -or -not $add.Enabled){throw 'Valid list did not recover after file repair'}
     # Keyboard handler registration is covered by parser and GUI init.
     # Real key events require an interactive Windows desktop and are field tests.
     Write-Output 'GUI button-click regression PASS: multi-add, selected remove, 3 simulated apply/restore pairs, busy click, failed worker recovery, post-restore add, deferred input clear, failed Add retention, honest journal label.'
