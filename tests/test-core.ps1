@@ -245,6 +245,12 @@ try {
   if(($script:removedNrpt -join ',') -ne 'this-install-rule' -or (Test-Path -LiteralPath $StatePath)){
     throw 'Matching v7 journal identity failed recovery'
   }
+  $lostIdentity=$false
+  try{[void](Get-JournalOwnerComment ([pscustomobject]@{version=7}))}catch{$lostIdentity=$true}
+  if(-not $lostIdentity){throw 'A v7 journal with missing identity downgraded to the legacy owner tag'}
+  if((Get-JournalOwnerComment ([pscustomobject]@{version=6})) -cne 'Selective-VPN-Bypass-owned'){
+    throw 'Legacy v6 journal ownership must remain readable'
+  }
   $badIdentity=$false
   try{[void](Get-JournalOwnerComment ([pscustomobject]@{ownerId='invalid'}))}catch{$badIdentity=$true}
   if(-not $badIdentity){throw 'Invalid journal identity was silently downgraded to legacy owner'}
