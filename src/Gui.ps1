@@ -112,7 +112,7 @@ function Make-Row($texts) {
 }
 $top=Make-Row @('Apply','Restore')
 $right.Controls.Add($top[0],0,1)
-$other=Make-Row @('Status','DNS')
+$other=Make-Row @('Status','DNS','Inspect')
 $right.Controls.Add($other[0],0,2)
 $log=New-Object Windows.Forms.TextBox
 $log.Multiline=$true;$log.ReadOnly=$true;$log.ScrollBars='Vertical'
@@ -152,7 +152,7 @@ function Valid-Target([string]$value) {
  throw 'Enter a hostname or IPv4 address (not a URL).'
 }
 function Set-UiBusy([bool]$busy) {
-  foreach($button in @($add,$top[1][0],$top[1][1],$other[1][0],$other[1][1])){
+  foreach($button in @($add,$top[1][0],$top[1][1],$other[1][0],$other[1][1],$other[1][2])){
     $button.Enabled = -not $busy
   }
   $remove.Enabled=(-not $busy -and $items.SelectedIndex -ge 0)
@@ -282,6 +282,7 @@ $top[1][0].Add_Click({Run-Action 'apply'})
 $top[1][1].Add_Click({Run-Action 'restore'})
 $other[1][0].Add_Click({Run-Action 'status'})
 $other[1][1].Add_Click({if($null -ne $items.SelectedItem){Run-Action 'dns' ([string]$items.SelectedItem)}})
+$other[1][2].Add_Click({Run-Action 'inspect'})
 Update-Items;Update-Status
 if ($InteractionTest) {
   # Same dispatcher as GUI; simulated apply/restore never touch network.
@@ -379,6 +380,7 @@ if ($SmokeTest) {
   if ($items.Items.Count -ne 0) { throw 'Smoke test requires an empty configuration list.' }
   if ($add.Text -ne 'Add' -or $remove.Text -ne 'Remove selected') { throw 'Missing list controls.' }
   if ($top[1][0].Text -ne 'Apply' -or $top[1][1].Text -ne 'Restore') { throw 'Missing action controls.' }
+  if ($other[1][2].Text -ne 'Inspect') { throw 'Missing read-only recovery inspector.' }
   if ($status.Text -match 'Applied: True|Applied: False') { throw 'Status misrepresents journal presence as verified application.' }
   Write-Output 'GUI controls initialization PASS (no interactive display or DPI test).'
   $form.Dispose()
