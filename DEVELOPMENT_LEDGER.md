@@ -336,6 +336,19 @@
 - **미해결:** 실제 OS 강제 종료 타이밍 전수 검증, 동시 다른 portable 구성 폴더의 동일 NRPT 소유권, 관리자 helper 실행 파일 교체 내성, 포괄적인 rollback 재시도 안전성, SoftEther 실기 반복 검증. 제품의 안정성 인증/릴리스 승격으로 오해하지 말 것.
 - **커밋 작성 정책:** WhoSia 명의 직접 변경, Actions 봇 소스 커밋 없음.
 
+## 2026-11-22 01:40:40 KST — 사용자 부담·보안·복구·설치 경계 역공학 재감사 [COMMITTED / CI PASS]
+
+- **요청 범위:** Selective-VPN-Bypass의 초창기 CLI → GUI → Portable 경로와 현재 main 코드를 전체 재검토. Windows 11/SoftEther와 Tailscale 공존, 일부 도메인·IPv4 예외, Windows 네트워크 품질 변동, JSON 데이터 보존, 키보드 UX 및 GitHub Actions 다운로드 운영을 원래의 제품 제약으로 유지. 학교나 관리 네트워크에 대한 접근제한 회피는 개발 범위에서 제외.
+- **정본 보고서:** [AUDIT_2026-11-22.md](AUDIT_2026-11-22.md)에 위험·사용자 부담·실패 행렬·증거 수준·요구사항 차이를 기록. 기존 [AUDIT_2026-11-09.md](AUDIT_2026-11-09.md)는 역사적 문서로 보존.
+- **새 판단:** 실제 Windows 라우팅·NRPT 상태 / EXE 폴더의 원하는 구성·저널 / AppData 실행 복사본 / TEMP 작업 로그가 독립적으로 존재한다. 이동·설치 위치 변경·비정상 종료·DNS/게이트웨이 변동에서 이들 상태의 불일치를 사용자가 스스로 해결해야 하는 과도한 부담이 발생할 수 있음.
+- **검증된 UX 결함 1:** GUI `Update-Status`가 `Test-Path $state`를 `Applied: True/False`로 표시하여, 저널 존재와 네트워크의 실제 적용 성공을 혼동하게 만듦. [`9edbfcf`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/9edbfcf616253d407bbaebacc355f9159620885d)에서 `Journal: present (unverified)/absent`로 의미를 정확하게 교정하고 주의 문구를 추가.
+- **검증된 UX 결함 2:** Add 클릭 후 worker가 단지 시작됐다는 이유로 텍스트를 즉시 삭제함. 같은 소스 커밋에서 `pendingAddText`를 사용해 worker가 종료 코드 0으로 완료되었을 때만 입력창을 비우도록 수정. 오류·시작 실패 시 입력 유지.
+- **실패 재현 테스트 강화:** [`99a314f`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/99a314f064332a1779973b35bf8fd80f040eebc7)에서 실제 Add worker에 존재하지 않는 backend를 전달해 종료 코드 오류를 유도; `FAILED: add`, 사용자 입력 `retry.example` 유지, 비정상 항목 미저장을 검증.
+- **최신 빌드 근거:** [Windows Actions `44925697625`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44925697625), `99a314f` 소스: PowerShell syntax, NRPT ownership, pending route, mutex, 모의 Restore, NRPT collision, GUI 실패 재현·복원, Go helper tests, x64 compile, portable upload 모두 PASS. Artifact `SelectiveVPNBypass-Portable-Windows-x64`, ID `14715725518`. Actions 패키지 안쪽 ZIP SHA-256 `13d10f4ca31f50187d908729b12562143962f682ed8d81c3f35e0dc9a4401508`.
+- **사용자 문서:** [`f71c6f4`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/f71c6f4615883e3576503c11ccceacef946d4b88) README에 저널과 실제 적용의 구분, 오류 후 입력 보존, 폴더 이동 시 주의, 최신 Actions 및 전체 감사 링크 추가.
+- **미해결 핵심:** ① 다른 portable 폴더/Windows 세션 간 경합 ② 불명확한 관리 NRPT 소유권 ③ 사용자 수정 가능한 저장 위치와 관리자 Helper 신뢰 경계 ④ 작업 타임아웃 부재 ⑤ 네트워크 변경 이후 상태·복구 UI 부재 ⑥ 실제 DPI/UAC/키보드/SoftEther 경로의 자동 검증 부재. 소스 감사만으로 보안 인증을 주장하지 않음.
+- **제약:** 이번 변경은 GUI·테스트·문서에 한정. Windows 라우트 또는 DNS 규칙을 변경하는 로직 자체는 수정하지 않음. 개인 네트워크의 실시간 설정, 프라이버시 민감 정보는 공개 기록에 저장하지 않음. GitHub Actions 봇 커밋 없음.
+
 ## 이후 기록 템플릿
 
 ```markdown
