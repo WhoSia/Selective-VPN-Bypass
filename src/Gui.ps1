@@ -158,6 +158,17 @@ function Set-UiBusy([bool]$busy) {
   $remove.Enabled=(-not $busy -and $items.SelectedIndex -ge 0)
   $entry.Enabled=-not $busy
 }
+# Never force-terminate Apply/Restore because it may leave an incomplete
+# Windows operation. Make long-running work and next steps explicit instead.
+function Get-RunningNotice([string]$action,[int]$elapsed) {
+ if($elapsed -ge 120){
+  return "Still running $action ($elapsed s). Do not open another copy. If the operation is interrupted, use Inspect before retrying; the app cannot confirm its current network stage."
+ }
+ if($elapsed -ge 30){
+  return "Running $action ($elapsed s), longer than usual. The window is responsive; no automatic cancellation is performed. If interrupted, inspect the recovery journal."
+ }
+ return "Running $action ($elapsed s)... The window is responsive."
+}
 # Single timer in GUI script scope; no GetNewClosure / separate module state.
 $script:actionTimer=New-Object Windows.Forms.Timer
 $script:actionTimer.Interval=150
@@ -166,7 +177,7 @@ $script:actionTimer.Add_Tick({
   try {
     if(-not $script:activeProcess.HasExited){
       $elapsed=[int]([DateTime]::UtcNow-$script:activeStarted).TotalSeconds
-      if($elapsed -ge 4){$log.Text="Running $($script:activeAction) ($elapsed s)... The window is responsive."}
+      if($elapsed -ge 4){$log.Text=Get-RunningNotice $script:activeAction $elapsed}
       return
     }
     $exitCode=$script:activeProcess.ExitCode
@@ -313,6 +324,13 @@ exit 0
     }
   }
   try {
+    # Long-running notice never promises a safe automatic rollback or cancellation.
+    if((Get-RunningNotice 'apply' 35) -notmatch 'no automatic cancellation'){
+      throw 'Long-running work did not explain cancellation limitations'
+    }
+    if((Get-RunningNotice 'restore' 130) -notmatch 'Inspect before retrying'){
+      throw 'Overdue worker did not explain recovery inspection'
+    }
     # Dispatch actual Button Click events, rather than calling Run-Action directly.
     # Reflection invokes protected OnClick without requiring an interactive desktop.
     function Click-Button([Windows.Forms.Button]$button) {
