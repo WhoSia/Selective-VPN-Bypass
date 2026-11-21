@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-09 KST):** [Windows Portable: NRPT crash journal + embedded privileged helper](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42571566855) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · package SHA-256 `38e854bfd6485147543ea87aa28985f730f8de3d7cba0ae8ef4823199430ad36`. Regression, simulated restore, embedded worker tests, Windows x64 compile and ZIP upload PASS. [Isolated live Windows crash-recovery test](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/42571566919) also PASS with reserved test objects. Real SoftEther/UAC approval and arbitrary forced termination on a user's network remain unverified.
+**Latest verified CI package (2026-11-22 KST):** [Windows portable: clearer journal status and failed-Add input retention](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44925697625) · artifact `SelectiveVPNBypass-Portable-Windows-x64`. Windows PowerShell syntax/list tests, GUI initialization and repeated-button regression (including failed Add), Go Windows x64 build, and ZIP upload PASS. These tests do not prove that network routing has been applied in a live VPN session.
 
 ## Features
 
@@ -24,6 +24,16 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 ## Architecture
 
 The Go executable now invokes its embedded Core PowerShell source **from memory for elevated Apply/Restore**, without loading a writable runtime-v4 script for privileged work. Read-only/list editing still uses the normal PowerShell worker. The privileged helper allows only Apply/Restore and validates the portable configuration folder and worker log name. The executable is not code-signed, so this is a trust-boundary hardening step, not verified resistance to executable replacement or every local attack.\n\nGo executable embeds three PowerShell sources: `src/Gui.ps1` (WinForms UI), `src/Core.ps1` (validation/routing), `src/Worker.ps1` (command worker). This is **not** yet a native Go UI toolkit. A fully modern high-DPI interface is a future improvement; the preview uses DPI-scaled layout and needs real-world display testing.
+
+## Status display and recovery expectations
+
+The interface distinguishes the **saved exception list** from the **Windows operation journal**. `Journal: present (unverified)` means a recovery state file exists, **not** that Windows routing or DNS rules are verified active. `Journal: absent` means there is no saved recovery state for that portable folder; it does not prove that OS policies from an older folder or an interrupted operation are absent.
+
+Use Add to save an entry; it does not immediately activate the entry. If Add fails, the typed entry is preserved to reduce repeated work. Apply/Restore require administrator approval; choosing not to approve is not itself evidence of a system fault.
+
+Before moving or replacing portable folders, inspect any outstanding journal and avoid deleting the recovery state without knowing whether network objects remain. Do not share unredacted diagnostics that contain local addresses, network configuration or usernames.
+
+For an independent engineering review covering user burden, failure states, security assumptions and verification gaps, see [AUDIT_2026-11-22.md](AUDIT_2026-11-22.md).
 
 ## Verification and development history
 
