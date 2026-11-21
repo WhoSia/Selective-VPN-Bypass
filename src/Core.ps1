@@ -121,7 +121,13 @@ function Lookup([string]$name,[string]$server){
 }
 # New journals own a unique NRPT Comment; legacy journals remain readable.
 function Get-JournalOwnerComment($journal) {
- if($null -eq $journal -or $null -eq $journal.ownerId){return $OwnerComment}
+ if($null -eq $journal){return $OwnerComment}
+ if($null -eq $journal.ownerId){
+  if($null -ne $journal.version -and [int]$journal.version -ge 7){
+   throw 'Version 7+ recovery journal is missing its owner identity. Do not downgrade ownership.'
+  }
+  return $OwnerComment
+ }
  $id=[guid]::Empty
  if(-not [guid]::TryParse([string]$journal.ownerId,[ref]$id) -or $id -eq [guid]::Empty){
   throw 'Invalid recovery journal owner identity. Preserve the file for inspection.'
