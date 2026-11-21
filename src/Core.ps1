@@ -447,20 +447,10 @@ switch($Action){
     foreach($ns in @($n,".$n")){
      $existing=@(Get-NamespaceRules $ns)
      if($existing.Count -gt 1){throw "Multiple DNS policies for $ns; manual review required."}
-     if($existing.Count -eq 1 -and $st.ownerId){
-      throw "Existing NRPT policy for $ns cannot be attributed to this new operation. No policy adopted or removed. Inspect before retrying."
-     }
-     if($existing.Count -eq 1){
-      $candidate=$existing[0]
-      if(-not (Test-CompatibleOwnedNrpt $candidate $ns $dns)){
-       throw "Existing DNS policy conflicts with $ns (owner or DNS server mismatch). No policy removed."
-      }
-      # A tagged orphan is adopted only for this exact namespace and DNS server set.
-      # Journal it before continuing so Restore can safely clean it up.
-      $st.rules+=([string]$candidate.Name)
-      Save-Json $StatePath $st
-      Write-Output "Reused compatible owned DNS policy for $ns."
-      continue
+     # Never adopt an owner-tagged orphan into a *new* identity. Legacy
+     # restoration still uses its original journal, without silent migration.
+     if($existing.Count -gt 0){
+      throw "Existing NRPT policy for $ns is not attributable to this new operation. No policy adopted or removed. Inspect before retrying."
      }
      # Journal intent before OS modification. A crash after Add but before
      # receiving the assigned Windows Name can now be reconciled by exact tuple.
