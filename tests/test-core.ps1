@@ -214,6 +214,42 @@ try {
 
 
 
+  # Version-7 ownership is per operation; identical namespace and DNS do not
+  # grant permission to restore another portable instance's policy.
+  $ownerOne=[guid]::NewGuid().ToString('D')
+  $ownerTwo=[guid]::NewGuid().ToString('D')
+  $journalOne=[pscustomobject]@{
+    version=7;ownerId=$ownerOne;wifiIndex=9;routes=@();pendingRoutes=@();
+    rules=@();pendingRules=@([pscustomobject]@{namespace='example.org';servers=@('192.0.2.53')})
+  }
+  $tagOne=Get-JournalOwnerComment $journalOne
+  $tagTwo=Get-JournalOwnerComment ([pscustomobject]@{ownerId=$ownerTwo})
+  if($tagOne -ceq $tagTwo){throw 'Two independent journal identities share the same owner tag'}
+  $script:mockNrpt=@([pscustomobject]@{
+    Name='another-install-rule';Namespace=@('example.org');Comment=$tagTwo;NameServers=@('192.0.2.53')
+  })
+  $script:removedNrpt=@()
+  Save-Json $StatePath $journalOne
+  $rejected=$false
+  try{Restore-Own|Out-Null}catch{$rejected=$true}
+  if(-not $rejected -or $script:removedNrpt.Count -ne 0 -or -not (Test-Path -LiteralPath $StatePath)){
+    throw 'Restore crossed into a foreign instance or discarded its recovery journal.'
+  }
+  $report=Inspect-JournalSnapshot $journalOne $script:mockNrpt @()
+  if($report.Code -ne 'CONFLICT'){throw 'Inspector did not flag foreign instance tag'}
+  $script:mockNrpt=@([pscustomobject]@{
+    Name='this-install-rule';Namespace=@('example.org');Comment=$tagOne;NameServers=@('192.0.2.53')
+  })
+  $script:removedNrpt=@()
+  Restore-Own|Out-Null
+  if(($script:removedNrpt -join ',') -ne 'this-install-rule' -or (Test-Path -LiteralPath $StatePath)){
+    throw 'Matching v7 journal identity failed recovery'
+  }
+  $badIdentity=$false
+  try{[void](Get-JournalOwnerComment ([pscustomobject]@{ownerId='invalid'}))}catch{$badIdentity=$true}
+  if(-not $badIdentity){throw 'Invalid journal identity was silently downgraded to legacy owner'}
+  Write-Host 'Per-operation ownership PASS: two-instance conflict, matching recovery, invalid GUID, legacy behavior.'
+
   # Read-only Recovery Inspector classification matrix (no network writes).
   $mockOwned=[pscustomobject]@{
     Name='managed-rule';Namespace=@('example.org');Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')
