@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-22 KST):** [Windows portable: clearer journal status and failed-Add input retention](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44925697625) · artifact `SelectiveVPNBypass-Portable-Windows-x64`. Windows PowerShell syntax/list tests, GUI initialization and repeated-button regression (including failed Add), Go Windows x64 build, and ZIP upload PASS. These tests do not prove that network routing has been applied in a live VPN session.
+**Latest verified CI package (2026-11-22 KST):** [Windows portable: read-only Recovery Inspector](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44929618071) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · inside ZIP SHA-256 `3f5c0e3850937fbb62fb9a43b2e9ce7fb1c20443198daa1526cc637a4102a784`. PowerShell classification/CLI tests, WinForms regression, Go tests, Windows x64 compile and upload PASS. [Isolated Windows NRPT/route recovery test](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44929618046) also PASS. No actual user SoftEther/UI keyboard/UAC guarantee.
 
 ## Features
 
