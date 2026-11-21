@@ -35,6 +35,14 @@ Before moving or replacing portable folders, inspect any outstanding journal and
 
 For an independent engineering review covering user burden, failure states, security assumptions and verification gaps, see [AUDIT_2026-11-22.md](AUDIT_2026-11-22.md).
 
+## Recovery Inspector (read-only)
+
+Use the **Inspect** button to compare this portable folder's saved recovery journal against a snapshot of Windows NRPT and IPv4 route entries. This operation does not require UAC elevation and does **not** add, remove or repair network rules.
+
+Possible results are `NO_JOURNAL` (this folder has no journal), `MATCHED_SNAPSHOT` (recorded objects appear present, **not** proof of actual site routing), `INCOMPLETE` (pending operations), `MISMATCH` (recorded objects not found), `CONFLICT` (incompatible objects), and `UNKNOWN` (unreadable journal or insufficient observation). The output reports counts rather than including the domain/IP names from the journal.
+
+**Do not erase the journal or copy one portable folder's state into another** just because the inspector reports a mismatch. A previous installation or third-party software may still own overlapping Windows objects. The inspector intentionally never attempts automatic cleanup.
+
 ## Verification and development history
 
 The build workflow runs syntax, exception-list, and noninteractive GUI initialization checks before compiling the portable ZIP. These checks do **not** replace actual Windows DPI, button interaction, VPN connection, or route rollback testing.
