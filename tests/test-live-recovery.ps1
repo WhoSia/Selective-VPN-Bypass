@@ -80,6 +80,31 @@ exit 0
  if($dnsAfter.Count -ne 0 -or $routeAfter.Count -ne 0 -or (Test-Path -LiteralPath $statePath)){
   throw "Live restore incomplete: DNS=$($dnsAfter.Count) route=$($routeAfter.Count)"
  }
+ # v7: the OS must retain a policy tagged to another journal identity even
+ # when the namespace and DNS servers are the same. Only this reserved test
+ # namespace is touched, and a mismatched policy is removed by test cleanup.
+ $ownerA=[guid]::NewGuid().ToString('D')
+ $ownerB=[guid]::NewGuid().ToString('D')
+ $v7=[ordered]@{
+  version=7;ownerId=$ownerA;wifiIndex=$index;routes=@();pendingRoutes=@();
+  rules=@();pendingRules=@(@{namespace=$testNamespace;servers=@($server)})
+ }
+ Save-Json $statePath $v7
+ Add-DnsClientNrptRule -Namespace $testNamespace -NameServers $server -Comment ('Selective-VPN-Bypass-owned:'+$ownerB) -ErrorAction Stop|Out-Null
+ $refused=$false
+ try{Restore-Own|Out-Null}catch{$refused=$true}
+ $foreignStill=@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $testNamespace})
+ if(-not $refused -or $foreignStill.Count -ne 1 -or -not (Test-Path -LiteralPath $statePath)){
+  throw 'v7 journal incorrectly removed foreign-instance NRPT or lost recovery state.'
+ }
+ Remove-DnsClientNrptRule -Name ([string]$foreignStill[0].Name) -Force -ErrorAction Stop|Out-Null
+ Add-DnsClientNrptRule -Namespace $testNamespace -NameServers $server -Comment ('Selective-VPN-Bypass-owned:'+$ownerA) -ErrorAction Stop|Out-Null
+ Restore-Own|Out-Null
+ $v7After=@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $testNamespace})
+ if($v7After.Count -ne 0 -or (Test-Path -LiteralPath $statePath)){
+  throw 'v7 journal failed to recover policy tagged with exact owner identity.'
+ }
+ Write-Host 'LIVE isolated v7 identity PASS: foreign policy retained, matched policy recovered.'
  $testSucceeded=$true
  Write-Host 'LIVE isolated Windows NRPT+route crash recovery PASS: orphaned OS objects reconciled after child exit.'
 }finally{
@@ -87,7 +112,7 @@ exit 0
  # and known route tuple. Never remove other network policies.
  try{
   foreach($rule in @(Get-DnsClientNrptRule -ErrorAction SilentlyContinue|
-   Where-Object{@($_.Namespace) -contains $testNamespace -and $_.Comment -eq 'Selective-VPN-Bypass-owned'})){
+   Where-Object{@($_.Namespace) -contains $testNamespace -and ([string]$_.Comment -eq 'Selective-VPN-Bypass-owned' -or ([string]$_.Comment).StartsWith('Selective-VPN-Bypass-owned:',[StringComparison]::Ordinal))})){
    Remove-DnsClientNrptRule -Name ([string]$rule.Name) -Force -ErrorAction Stop | Out-Null
   }
  }catch{Write-Warning "Cleanup NRPT issue: $_"}
