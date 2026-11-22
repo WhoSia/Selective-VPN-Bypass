@@ -51,10 +51,19 @@ func validateWorkerArguments(executable,action,configDir,logPath string) error {
 // an attacker can still race path replacement, and hardlinks need separate
 // Windows file-ID validation before a privileged journal can be trusted.
 func validatePortableFileBoundary(dir string) error {
- info,err:=os.Lstat(dir)
- if err!=nil{return fmt.Errorf("cannot inspect portable folder: %w",err)}
- if !info.IsDir() || info.Mode()&os.ModeSymlink!=0 {
-  return errors.New("portable folder is not a normal directory; refusing elevated operation")
+ // Inspect each ancestor as well as the final Portable folder. A junction
+ // above the folder must not hide behind a perfectly regular final directory.
+ // This is still path-based preflight, not a handle-bound identity guarantee.
+ current:=filepath.Clean(dir)
+ for {
+  info,err:=os.Lstat(current)
+  if err!=nil{return fmt.Errorf("cannot inspect portable folder ancestor: %w",err)}
+  if !info.IsDir() || info.Mode()&os.ModeSymlink!=0 {
+   return errors.New("portable folder path contains a redirected or non-directory component; refusing elevated operation")
+  }
+  parent:=filepath.Dir(current)
+  if parent==current {break}
+  current=parent
  }
  for _,name:=range []string{"Selective-VPN-Bypass.domains.json","Selective-VPN-Bypass_v3.state.json"} {
   path:=filepath.Join(dir,name)
