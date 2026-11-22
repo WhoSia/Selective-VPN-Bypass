@@ -46,6 +46,28 @@ func validateWorkerArguments(executable,action,configDir,logPath string) error {
  return nil
 }
 
+// Reject obvious filesystem redirection before crossing the elevation
+// boundary. This is a fail-closed *preflight*, not a handle-bound ACL proof:
+// an attacker can still race path replacement, and hardlinks need separate
+// Windows file-ID validation before a privileged journal can be trusted.
+func validatePortableFileBoundary(dir string) error {
+ info,err:=os.Lstat(dir)
+ if err!=nil{return fmt.Errorf("cannot inspect portable folder: %w",err)}
+ if !info.IsDir() || info.Mode()&os.ModeSymlink!=0 {
+  return errors.New("portable folder is not a normal directory; refusing elevated operation")
+ }
+ for _,name:=range []string{"Selective-VPN-Bypass.domains.json","Selective-VPN-Bypass_v3.state.json"} {
+  path:=filepath.Join(dir,name)
+  stat,err:=os.Lstat(path)
+  if errors.Is(err,os.ErrNotExist){continue}
+  if err!=nil{return fmt.Errorf("cannot inspect portable data file %s: %w",name,err)}
+  if !stat.Mode().IsRegular() || stat.Mode()&os.ModeSymlink!=0 {
+   return fmt.Errorf("portable data file %s is redirected or not a regular file",name)
+  }
+ }
+ return nil
+}
+
 func embeddedCoreWrapper(core []byte,action,dir string) string {
  encoded:=base64.StdEncoding.EncodeToString(core)
  return "$ErrorActionPreference='Stop'\n"+
@@ -74,6 +96,7 @@ func runEmbeddedWorker(args []string) error {
  if fs.NArg()!=0 {return errors.New("unexpected worker arguments")}
  exe,err:=os.Executable();if err!=nil{return err}
  if err=validateWorkerArguments(exe,*action,*dir,*logPath);err!=nil{return err}
+ if err=validatePortableFileBoundary(*dir);err!=nil{return err}
  core,err:=scripts.ReadFile("src/Core.ps1");if err!=nil{return err}
  root:=os.Getenv("SystemRoot")
  if root==""{return errors.New("Windows system root unavailable")}
