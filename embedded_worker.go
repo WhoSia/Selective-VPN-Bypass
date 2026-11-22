@@ -16,7 +16,7 @@ import (
 
 // The elevated worker reads trusted PowerShell source directly from the Go
 // executable's embed.FS. It never executes a user-writable runtime-v4 *.ps1.
-const workerBootstrap = "$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $s=[Console]::In.ReadToEnd(); & ([ScriptBlock]::Create($s))"
+const workerBootstrap = "$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $OutputEncoding=[Text.UTF8Encoding]::new($false); $s=[Console]::In.ReadToEnd(); & ([ScriptBlock]::Create($s))"
 
 var workerLogName=regexp.MustCompile(`^svb-[0-9a-f]{32}\.log$`)
 
