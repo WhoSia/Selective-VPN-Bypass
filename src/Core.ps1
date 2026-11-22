@@ -359,7 +359,7 @@ function Get-RestorePreflight($st) {
  $doneRoutes=@($st.restoreDoneRoutes)
  foreach($name in $known){
   if($doneRules -ccontains [string]$name){continue}
-  $r=Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction SilentlyContinue
+  $r=@(Get-DnsClientNrptRule -ErrorAction Stop | Where-Object { [string]$_.Name -ceq [string]$name })
   if($null -eq $r){continue}
   if(@($r).Count -ne 1 -or [string]$r.Comment -cne $owner){
    throw "Preflight: recorded NRPT identity is ambiguous or mismatched."
@@ -398,13 +398,13 @@ function Restore-Own {
  $owner=Get-JournalOwnerComment $st
  foreach($name in @($plan.RuleNames)){
   try{
-   $current=@(Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction SilentlyContinue)
+   $current=@(Get-DnsClientNrptRule -ErrorAction Stop | Where-Object { [string]$_.Name -ceq [string]$name })
    if($current.Count -gt 1){throw 'NRPT identity became ambiguous.'}
    if($current.Count -eq 1){
     if([string]$current[0].Comment -cne $owner){throw 'NRPT identity changed after preflight.'}
     Remove-DnsClientNrptRule -Name ([string]$name) -Force -ErrorAction Stop|Out-Null
    }
-   $after=@(Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction Stop)
+   $after=@(Get-DnsClientNrptRule -ErrorAction Stop | Where-Object { [string]$_.Name -ceq [string]$name })
    if($after.Count -ne 0){throw 'NRPT still exists after removal.'}
    Save-RestoreCompletion $st 'restoreDoneRules' ([string]$name)
   }catch{$errors+="NRPT removal or verification failed: $_"}
