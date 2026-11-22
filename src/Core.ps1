@@ -338,6 +338,27 @@ function Assert-RecoveryJournal($journal) {
    if(-not (Is-IPv4 ([string]$server))){throw 'Invalid pending DNS server.'}
   }
  }}
+ # Completion records are compatibility extensions, not trusted proof of
+ # origin. Reject malformed entries and references outside this journal.
+ $expectedRoutes=@(Route-Records $journal|ForEach-Object{
+  Get-RestoreRouteKey $_ ([int]$journal.wifiIndex)
+ })
+ $expectedIntents=@(Pending-NrptRecords $journal|ForEach-Object{[string]$_.namespace})
+ foreach($field in @('restoreDoneRules','restoreDoneIntents','restoreDoneRoutes')){
+  if($null -eq $journal.PSObject.Properties[$field]){continue}
+  $values=$journal.$field
+  if($values -isnot [array] -or @($values).Count -gt 4096){
+   throw 'Invalid recovery completion record array.'
+  }
+  $allowed=if($field -eq 'restoreDoneRules'){@($journal.rules)}
+   elseif($field -eq 'restoreDoneIntents'){$expectedIntents}
+   else{$expectedRoutes}
+  foreach($value in @($values)){
+   if($value -isnot [string] -or [string]::IsNullOrWhiteSpace($value) -or $allowed -cnotcontains $value){
+    throw 'Recovery completion entry is not part of its original journal.'
+   }
+  }
+ }
 }
 # Terminal entries prevent a later retry from deleting a newly-created
 # object with the same OS identity. These fields are optional for old journals.
