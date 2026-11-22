@@ -105,6 +105,37 @@ exit 0
   throw 'v7 journal failed to recover policy tagged with exact owner identity.'
  }
  Write-Host 'LIVE isolated v7 identity PASS: foreign policy retained, matched policy recovered.'
+
+ # v8: even the correct operation comment and Windows rule ID are insufficient
+ # if the namespace/DNS tuple has changed. Use only the reserved test scope.
+ $ownerEight=[guid]::NewGuid().ToString('D')
+ $badServer='192.0.2.54'
+ $v8Observed=Add-DnsClientNrptRule -Namespace $testNamespace -NameServers $badServer -Comment ('Selective-VPN-Bypass-owned:'+$ownerEight) -PassThru -ErrorAction Stop
+ $v8=[ordered]@{
+  version=8;ownerId=$ownerEight;wifiIndex=$index;routes=@();pendingRoutes=@();
+  rules=@([string]$v8Observed.Name)
+  ruleDetails=@(@{name=[string]$v8Observed.Name;namespace=$testNamespace;servers=@($server)})
+  pendingRules=@()
+ }
+ Save-Json $statePath $v8
+ $v8Rejected=$false
+ try{Restore-Own|Out-Null}catch{$v8Rejected=$true}
+ $v8Still=@(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $testNamespace})
+ if(-not $v8Rejected -or $v8Still.Count -ne 1 -or -not (Test-Path -LiteralPath $statePath)){
+  throw 'v8 failed to retain a same-owner NRPT policy with changed DNS servers.'
+ }
+ Remove-DnsClientNrptRule -Name ([string]$v8Still[0].Name) -Force -ErrorAction Stop | Out-Null
+ $v8Correct=Add-DnsClientNrptRule -Namespace $testNamespace -NameServers $server -Comment ('Selective-VPN-Bypass-owned:'+$ownerEight) -PassThru -ErrorAction Stop
+ $v8.rules=@([string]$v8Correct.Name)
+ $v8.ruleDetails=@(@{name=[string]$v8Correct.Name;namespace=$testNamespace;servers=@($server)})
+ Save-Json $statePath $v8
+ Restore-Own|Out-Null
+ if((Test-Path -LiteralPath $statePath) -or
+    @(Get-DnsClientNrptRule -ErrorAction Stop|Where-Object{@($_.Namespace) -contains $testNamespace}).Count -ne 0){
+  throw 'v8 exact committed NRPT tuple did not restore cleanly.'
+ }
+ Write-Host 'LIVE isolated v8 NRPT identity PASS: changed DNS blocked, exact tuple removed.'
+
  $testSucceeded=$true
  Write-Host 'LIVE isolated Windows NRPT+route crash recovery PASS: orphaned OS objects reconciled after child exit.'
 }finally{
