@@ -328,45 +328,83 @@ function Assert-RecoveryJournal($journal) {
   }
  }}
 }
+# Read-only, all-object preflight. This prevents a known conflict in a late
+# route from causing an earlier NRPT deletion. It does NOT make Restore atomic.
+function Get-RestorePreflight($st) {
+ Assert-RecoveryJournal $st
+ $owner=Get-JournalOwnerComment $st
+ $ruleNames=@()
+ $known=@($st.rules)
+ foreach($name in $known){
+  $r=Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction SilentlyContinue
+  if($null -eq $r){continue}
+  if(@($r).Count -ne 1 -or [string]$r.Comment -cne $owner){
+   throw "Preflight: recorded NRPT identity is ambiguous or mismatched."
+  }
+  if($ruleNames -notcontains ([string]$r.Name)){$ruleNames+=([string]$r.Name)}
+ }
+ foreach($intent in @(Pending-NrptRecords $st)){
+  foreach($r in @(Find-PendingOwnedNrpt $intent $owner)){
+   if($ruleNames -notcontains ([string]$r.Name)){$ruleNames+=([string]$r.Name)}
+  }
+ }
+ $routeItems=@()
+ foreach($record in @(Route-Records $st)){
+  $found=@(Get-NetRoute -InterfaceIndex ([int]$st.wifiIndex) -AddressFamily IPv4 -ErrorAction Stop |
+   Where-Object {Test-ManagedRouteMatch $_ $record ([int]$st.wifiIndex)})
+  if($found.Count -gt 1){throw 'Preflight: duplicate matching route candidates; no changes made.'}
+  if($found.Count -eq 1){
+   $a=Get-NetAdapter -Name $WifiAlias -ErrorAction Stop
+   if([int]$a.ifIndex -ne [int]$st.wifiIndex){
+    throw 'Preflight: interface changed while a recorded route remains.'
+   }
+   $routeItems+=,$record
+  }
+ }
+ return [pscustomobject]@{RuleNames=@($ruleNames);Routes=@($routeItems)}
+}
 function Restore-Own {
  $st=State
  if(!$st){Write-Output 'No managed state.';return}
- Assert-RecoveryJournal $st
+ # No modification is attempted unless *all* recorded objects pass preflight.
+ $plan=Get-RestorePreflight $st
  $errors=@()
- $expectedComment=Get-JournalOwnerComment $st
- $knownRules=@($st.rules)
- foreach($name in $knownRules){
+ $owner=Get-JournalOwnerComment $st
+ foreach($name in @($plan.RuleNames)){
   try{
-   $r=Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction SilentlyContinue
-   if($r -and [string]$r.Comment -ceq $expectedComment){
-    Remove-DnsClientNrptRule -Name ([string]$name) -Force -ErrorAction Stop|Out-Null
-   }elseif($r){throw 'NRPT ownership mismatch'}
-  }catch{$errors+="NRPT $name : $_"}
- }
- foreach($intent in @(Pending-NrptRecords $st)){
-  try{
-   $matched=@(Find-PendingOwnedNrpt $intent $expectedComment)
-   foreach($r in $matched){
-    if($knownRules -contains ([string]$r.Name)){continue}
-    Remove-DnsClientNrptRule -Name ([string]$r.Name) -Force -ErrorAction Stop|Out-Null
+   $current=Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction Stop
+   if(@($current).Count -ne 1 -or [string]$current.Comment -cne $owner){
+    throw 'NRPT identity changed after preflight.'
    }
-  }catch{$errors+="Pending NRPT $($intent.namespace) : $_"}
+   Remove-DnsClientNrptRule -Name ([string]$name) -Force -ErrorAction Stop|Out-Null
+  }catch{$errors+="NRPT removal failed: $_"}
  }
- foreach($record in @(Route-Records $st)){
+ foreach($record in @($plan.Routes)){
   try{
    $a=Get-NetAdapter -Name $WifiAlias -ErrorAction Stop
-   if([int]$a.ifIndex -ne [int]$st.wifiIndex){throw 'Interface index changed'}
-   $found=@(Get-NetRoute -InterfaceIndex ([int]$st.wifiIndex) -AddressFamily IPv4 -ErrorAction SilentlyContinue|
-    Where-Object { Test-ManagedRouteMatch $_ $record ([int]$st.wifiIndex) })
-   if($found.Count -gt 1){
-    throw 'Multiple identical route candidates exist; ownership is ambiguous. No route removed.'
+   if([int]$a.ifIndex -ne [int]$st.wifiIndex){throw 'Route interface changed after preflight.'}
+   $current=@(Get-NetRoute -InterfaceIndex ([int]$st.wifiIndex) -AddressFamily IPv4 -ErrorAction Stop|
+    Where-Object {Test-ManagedRouteMatch $_ $record ([int]$st.wifiIndex)})
+   if($current.Count -gt 1){throw 'Route ownership became ambiguous after preflight.'}
+   if($current.Count -eq 1){
+    Remove-NetRoute -InputObject $current[0] -Confirm:$false -ErrorAction Stop
    }
-   foreach($r in $found){Remove-NetRoute -InputObject $r -Confirm:$false -ErrorAction Stop}
-  }catch{$errors+="Route $($record.prefix) : $_"}
+  }catch{$errors+="Route removal failed: $_"}
  }
- if($errors.Count){$errors|ForEach-Object{Write-Warning $_};throw 'Restore incomplete. State retained.'}
- Remove-Item -LiteralPath $StatePath -Force
- Write-Output 'Managed routes and DNS rules restored; VPN default route left intact.'
+ # Postcondition is an independent observation, not an assumption from cmdlet
+ # return codes. Missing objects count as already gone; conflicts retain state.
+ try {
+  $remaining=Get-RestorePreflight $st
+  if(@($remaining.RuleNames).Count -gt 0 -or @($remaining.Routes).Count -gt 0){
+   $errors+='Postcondition: one or more recorded objects remain.'
+  }
+ }catch{$errors+="Postcondition inspection failed: $_"}
+ if($errors.Count){
+  $errors|ForEach-Object{Write-Warning $_}
+  throw 'Restore incomplete. Recovery journal retained.'
+ }
+ Remove-Item -LiteralPath $StatePath -Force -ErrorAction Stop
+ Write-Output 'Recorded objects absent after verification. Recovery journal cleared.'
 }
 # Read-only operations can proceed; all writes (including Apply/Restore) use
 # one cross-process writer lock. No implicit recovery if state is unfamiliar.
