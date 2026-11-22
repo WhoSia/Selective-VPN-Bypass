@@ -260,7 +260,7 @@ $script:actionTimer.Add_Tick({
       if($entry.Text -ceq $script:pendingAddText){$entry.Clear()}
     }
     if(Test-Path -LiteralPath $script:activeLogPath){
-      $output=Get-Content -LiteralPath $script:activeLogPath -Raw -ErrorAction Stop
+      $output=Get-Content -LiteralPath $script:activeLogPath -Raw -Encoding UTF8 -ErrorAction Stop
       if($exitCode -eq 0){$log.Text="Completed: $($script:activeAction)"+[Environment]::NewLine+$output}
       else{$log.Text="FAILED: $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+(Get-FailureGuidance $output)+[Environment]::NewLine+$output}
     }else{$log.Text="FAILED: No result log for $($script:activeAction) (exit $exitCode)"}
