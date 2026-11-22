@@ -644,15 +644,16 @@ try {
     Write-Output ("Recorded objects: DNS policies="+$report.Rules+" IPv4 routes="+$report.Routes)
     Write-Output ("Completed="+$report.Completed+" unfinished="+$report.Pending+" missing="+$report.Missing+" conflicts="+$report.Conflicts)
    }
-   $trust=Get-PrivilegedStoreHealth
-   Write-Output ('Future privileged journal store: '+$trust.Code)
-   Write-Output $trust.Reason
-   Write-Output 'This read-only ACL observation does not authenticate the current portable recovery journal.'
    Write-Output 'No changes were made. A matching snapshot is not proof of browser routing or site access.'
   }catch{
    Write-Warning 'Recovery inspection: UNKNOWN (journal unreadable or Windows inspection unavailable).'
    Write-Output 'No changes were made. Preserve configuration files; do not delete network rules without verifying ownership.'
   }
+  # This diagnostic remains available when Windows NRPT/route inventory fails.
+  $trust=Get-PrivilegedStoreHealth
+  Write-Output ('Future privileged journal store: '+$trust.Code)
+  Write-Output $trust.Reason
+  Write-Output 'ACL observations are not proof of an authenticated recovery journal.'
   break
  }
  'restore'{Require-Admin;Restore-Own;break}
