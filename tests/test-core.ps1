@@ -142,6 +142,34 @@ try {
   }
   Write-Host 'Cross-process single-writer mutex PASS.'
 
+  # Different portable folders must not concurrently perform network writes.
+  $otherDir=Join-Path $testDir 'other-portable'
+  New-Item -ItemType Directory -Path $otherDir -Force|Out-Null
+  $probeNetwork=Join-Path $testDir 'network-lock-probe.ps1'
+  @'
+param([string]$Core,[string]$Dir)
+$ErrorActionPreference='Stop'
+. $Core -Action list -ConfigDir $Dir | Out-Null
+try{
+ $lock=Enter-NetworkLock
+ if($null -ne $lock){$lock.ReleaseMutex();$lock.Dispose()}
+ exit 7
+}catch{
+ if($_.Exception.Message -match 'Another network operation'){exit 0}
+ exit 8
+}
+'@|Set-Content -LiteralPath $probeNetwork -Encoding UTF8
+  $networkLock=Enter-NetworkLock
+  try {
+    & $exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probeNetwork -Core $core -Dir $otherDir
+    if($LASTEXITCODE -ne 0){throw "Cross-folder network lock failed: exit $LASTEXITCODE"}
+  } finally {
+    $networkLock.ReleaseMutex()
+    $networkLock.Dispose()
+  }
+  Write-Host 'Cross-folder same-session network mutex PASS.'
+
+
   # End-to-end Restore-Own with mocked Windows NetTCPIP cmdlets:
   # same destination prefix, but one is owned and the other is foreign.
   $script:removedRoutes=@()
@@ -153,8 +181,10 @@ try {
   function Get-NetRoute {
     [CmdletBinding()]
     param([int]$InterfaceIndex,[string]$AddressFamily)
+    $owned=[pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.1';InterfaceIndex=9;RouteMetric=1}
+    if($script:duplicateRoutes){return @($owned,$owned)}
     return @(
-      [pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.1';InterfaceIndex=9;RouteMetric=1},
+      $owned,
       [pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.254';InterfaceIndex=9;RouteMetric=1}
     )
   }
@@ -171,6 +201,19 @@ try {
   }
   if(Test-Path -LiteralPath $StatePath){throw 'Successful mocked Restore did not remove completed state file.'}
   Write-Host 'Mocked Restore PASS: pending route removed, same-prefix foreign route retained.'
+
+  $script:duplicateRoutes=$true
+  $script:removedRoutes=@()
+  Save-Json $StatePath $journal
+  $duplicateBlocked=$false
+  try{Restore-Own|Out-Null}catch{$duplicateBlocked=$true}
+  if(-not $duplicateBlocked -or $script:removedRoutes.Count -ne 0 -or -not (Test-Path -LiteralPath $StatePath)){
+    throw 'Ambiguous identical route was removed or journal discarded.'
+  }
+  Remove-Item -LiteralPath $StatePath -Force
+  $script:duplicateRoutes=$false
+  Write-Host 'Ambiguous duplicate route Restore fail-closed PASS.'
+
 
   # Simulate a crash after NRPT creation but before its Windows-assigned ID
   # can be saved in completed rules. No live DNS settings are modified.
