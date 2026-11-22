@@ -181,6 +181,50 @@ function Find-PendingOwnedNrpt($intent,[string]$expectedComment=$OwnerComment){
  }
  return @($r)
 }
+# Read-only security posture probe for a *future* privileged journal store.
+# It never creates ProgramData directories, changes ACLs, or promotes a legacy
+# user-writable journal into an authority. ACL observations are not a proof of
+# effective access or of authentic journal provenance.
+function Get-PrivilegedStoreHealth([string]$commonDataRoot='') {
+ try {
+  if([string]::IsNullOrWhiteSpace($commonDataRoot)){
+   $commonDataRoot=[Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+  }
+  if([string]::IsNullOrWhiteSpace($commonDataRoot)){
+   return [pscustomobject]@{Code='UNKNOWN';Reason='Windows common application data directory could not be located.'}
+  }
+  $folder=Join-Path $commonDataRoot 'SelectiveVPNBypass'
+  if(-not (Test-Path -LiteralPath $folder)){
+   return [pscustomobject]@{Code='NOT_CONFIGURED';Reason='No privileged journal store installed. This version still uses a portable, unauthenticated journal.'}
+  }
+  $item=Get-Item -LiteralPath $folder -Force -ErrorAction Stop
+  if(-not $item.PSIsContainer){
+   return [pscustomobject]@{Code='UNSAFE_PATH';Reason='The expected journal directory path is occupied by a non-directory object.'}
+  }
+  $base=Get-Item -LiteralPath $commonDataRoot -Force -ErrorAction Stop
+  foreach($entry in @($base,$item)){
+   if(([int]$entry.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0){
+    return [pscustomobject]@{Code='REPARSE_POINT';Reason='A journal path component is redirected; do not rely on it for privileged data.'}
+   }
+  }
+  $acl=Get-Acl -LiteralPath $folder -ErrorAction Stop
+  $mask=[int]([Security.AccessControl.FileSystemRights]::Write -bor
+    [Security.AccessControl.FileSystemRights]::Modify -bor
+    [Security.AccessControl.FileSystemRights]::FullControl)
+  foreach($ace in @($acl.Access)){
+   if($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow){continue}
+   $id=[string]$ace.IdentityReference.Value
+   try{$id=$ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value}catch{}
+   if($id -notin @('S-1-1-0','S-1-5-11','S-1-5-32-545','Everyone','BUILTIN\Users','NT AUTHORITY\Authenticated Users')){continue}
+   if((([int]$ace.FileSystemRights) -band $mask) -ne 0){
+    return [pscustomobject]@{Code='BROAD_WRITE_ACE';Reason='Broad write permission found in directory ACL. Effective access requires administrator review.'}
+   }
+  }
+  return [pscustomobject]@{Code='ACL_UNVERIFIED';Reason='No obvious broad write ACE observed; this is not an assurance of secure privileged journal storage.'}
+ }catch{
+  return [pscustomobject]@{Code='UNKNOWN';Reason='Cannot establish privileged-store path or access-control status read-only.'}
+ }
+}
 # Read-only inspection of a saved journal against Windows snapshots.
 # No route or DNS mutation is performed. Do not mistake a matching snapshot
 # for proof of application-level traffic isolation.
@@ -600,6 +644,10 @@ try {
     Write-Output ("Recorded objects: DNS policies="+$report.Rules+" IPv4 routes="+$report.Routes)
     Write-Output ("Completed="+$report.Completed+" unfinished="+$report.Pending+" missing="+$report.Missing+" conflicts="+$report.Conflicts)
    }
+   $trust=Get-PrivilegedStoreHealth
+   Write-Output ('Future privileged journal store: '+$trust.Code)
+   Write-Output $trust.Reason
+   Write-Output 'This read-only ACL observation does not authenticate the current portable recovery journal.'
    Write-Output 'No changes were made. A matching snapshot is not proof of browser routing or site access.'
   }catch{
    Write-Warning 'Recovery inspection: UNKNOWN (journal unreadable or Windows inspection unavailable).'
