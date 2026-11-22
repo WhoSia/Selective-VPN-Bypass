@@ -428,6 +428,7 @@ if($Action -eq 'apply' -and $Domain -eq 'fail'){
   "SIMULATED FAILURE" | Set-Content -LiteralPath $LogPath -Encoding UTF8
   exit 7
 }
+if($Action -eq 'apply' -and $Domain -eq 'nolog'){exit 0}
 "SIMULATED $Action SUCCESS" | Set-Content -LiteralPath $LogPath -Encoding UTF8
 exit 0
 '@ | Set-Content -LiteralPath $mock -Encoding UTF8
@@ -502,6 +503,13 @@ exit 0
       Click-Button ($top[1][1]); Wait-Idle "restore cycle $i"
       if($log.Text -notmatch "SIMULATED restore SUCCESS"){throw 'Simulated restore did not complete'}
     }
+    # A successful exit without an output log is not verified completion.
+    if(-not (Run-Action 'apply' 'nolog')){throw 'No-log mock worker failed to launch'}
+    Wait-Idle 'worker without result log'
+    if($log.Text -notmatch '\[NO_RESULT_LOG\]' -or $log.Text -match '^Completed:'){
+      throw ('No-log worker incorrectly reported success: '+$log.Text)
+    }
+    if($script:running){throw 'No-log worker left the GUI in busy state'}
     [void](Run-Action 'apply' 'fail')
     Wait-Idle 'failed apply worker'
     if($log.Text -notmatch 'FAILED: apply' -or $log.Text -notmatch 'SIMULATED FAILURE'){
