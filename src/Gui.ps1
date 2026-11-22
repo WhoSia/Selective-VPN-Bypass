@@ -275,7 +275,9 @@ $script:actionTimer.Add_Tick({
     $exitCode=$script:activeProcess.ExitCode
     if(Test-Path -LiteralPath $script:activeLogPath){
       $output=Get-Content -LiteralPath $script:activeLogPath -Raw -Encoding UTF8 -ErrorAction Stop
-      if($exitCode -eq 0){
+      if($exitCode -eq 0 -and [string]::IsNullOrWhiteSpace($output)){
+        $log.Text="FAILED: Empty result log for $($script:activeAction)"+[Environment]::NewLine+"[EMPTY_RESULT_LOG] The worker did not report a verifiable result. Preserve the journal and run Inspect before retrying."
+      }elseif($exitCode -eq 0){
         $log.Text="Completed: $($script:activeAction)"+[Environment]::NewLine+$output
         # Only acknowledge Add after both worker success and readable log.
         # Never erase a user's input on a missing/unreadable result.
@@ -433,6 +435,10 @@ if($Action -eq 'apply' -and $Domain -eq 'fail'){
   exit 7
 }
 if($Action -eq 'apply' -and $Domain -eq 'nolog'){exit 0}
+if($Action -eq 'apply' -and $Domain -eq 'emptylog'){
+  [IO.File]::WriteAllText($LogPath,'')
+  exit 0
+}
 "SIMULATED $Action SUCCESS" | Set-Content -LiteralPath $LogPath -Encoding UTF8
 exit 0
 '@ | Set-Content -LiteralPath $mock -Encoding UTF8
@@ -524,6 +530,13 @@ exit 0
       throw ('No-log worker incorrectly reported success: '+$log.Text)
     }
     if($script:running){throw 'No-log worker left the GUI in busy state'}
+
+    if(-not (Run-Action 'apply' 'emptylog')){throw 'Empty-log mock worker failed to launch'}
+    Wait-Idle 'worker with empty result log'
+    if($log.Text -notmatch '\[EMPTY_RESULT_LOG\]' -or $log.Text -match '^Completed:'){
+      throw ('Empty-log worker incorrectly reported success: '+$log.Text)
+    }
+
     [void](Run-Action 'apply' 'fail')
     Wait-Idle 'failed apply worker'
     if($log.Text -notmatch 'FAILED: apply' -or $log.Text -notmatch 'SIMULATED FAILURE'){
