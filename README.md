@@ -118,6 +118,14 @@ The **Backup** button creates a user-selected JSON file containing only the **sa
 
 The elevated Go worker now opens only a fresh result log under its process temporary directory, using an exclusive file handle and capturing PowerShell output through the Go process instead of letting elevated PowerShell reopen the log destination. A pre-existing filename is refused. Note that alternate administrator-account UAC elevation can use a different temporary directory and may require an explicit future cross-account logging design. This hardening limits accidental overwrite; it does not fully establish the authenticity of the user-writable journal or eliminate all filesystem redirection races.
 
+## Worker completion integrity and migration-blocker assessment
+
+The GUI now treats **missing or empty worker result logs as unverified failures**, even when the worker process exited with code zero. It preserves the text entered for Add until both a successful process exit and a readable, nonempty result have been observed. Failure notifications advise read-only Inspect rather than assuming rollback completed.
+
+Windows CI runs the GUI interaction test **three times in separate temporary folders** to increase its chance of detecting timing-dependent lifecycle failures. Worker start/finish counters are included in test exceptions to help distinguish a button dispatch issue from a delayed exit or status update. Repeated success does **not** prove that the previously observed intermittent failure is fixed.
+
+Inspect also reports a **read-only privileged-journal migration gate**. Possible labels are `NO_LOCAL_JOURNAL`, `BLOCKED_INVALID_JOURNAL`, `BLOCKED_LEGACY_OWNER`, `BLOCKED_PENDING`, `BLOCKED_RECORDED_OBJECTS`, `EMPTY_JOURNAL_REVIEW`, and `BLOCKED_UNREADABLE`. Even `EMPTY_JOURNAL_REVIEW` is **not permission to migrate**: other Windows objects and Portable folders may still exist. The software does not create the future privileged directory, elevate journal authority, copy legacy files or modify Windows network policies during this classification.
+
 ## Verification and development history
 
 The build workflow runs syntax, exception-list, and noninteractive GUI initialization checks before compiling the portable ZIP. These checks do **not** replace actual Windows DPI, button interaction, VPN connection, or route rollback testing.
