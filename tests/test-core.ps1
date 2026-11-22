@@ -685,6 +685,18 @@ try{
   if($initialTrust.Code -ne 'NOT_CONFIGURED' -or (Test-Path -LiteralPath $store)){
    throw 'Trust inspection incorrectly initialized an absent privileged store.'
   }
+  # Simulate denied metadata lookup; it must not become NOT_CONFIGURED.
+  $deniedStatus=& {
+   function Get-Item {
+    [CmdletBinding()]
+    param([string]$LiteralPath,[switch]$Force)
+    throw [UnauthorizedAccessException]::new('Simulated access denied')
+   }
+   Get-PrivilegedStoreHealth $fakeCommonData
+  }
+  if($deniedStatus.Code -ne 'UNKNOWN'){
+   throw 'Unreadable privileged-store metadata was misreported as absent.'
+  }
   Set-Content -LiteralPath $store -Value 'preserve existing file' -Encoding UTF8
   $beforeStore=[IO.File]::ReadAllBytes($store)
   $wrongObject=Get-PrivilegedStoreHealth $fakeCommonData
