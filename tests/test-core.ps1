@@ -475,6 +475,51 @@ try{
   if(-not $badIdentity){throw 'Invalid journal identity was silently downgraded to legacy owner'}
   Write-Host 'Per-operation ownership PASS: two-instance conflict, matching recovery, invalid GUID, legacy behavior.'
 
+  # v8 must not remove a same-name, same-comment NRPT whose DNS tuple changed.
+  $ownerEight=[guid]::NewGuid().ToString('D')
+  $state8=[pscustomobject]@{
+   version=8;ownerId=$ownerEight;wifiIndex=9;rules=@('v8-rule');
+   ruleDetails=@([pscustomobject]@{name='v8-rule';namespace='example.org';servers=@('192.0.2.53')});
+   routes=@();pendingRoutes=@();pendingRules=@()
+  }
+  Assert-RecoveryJournal $state8
+  $v8Comment=Get-JournalOwnerComment $state8
+  $script:mockNrpt=@([pscustomobject]@{
+   Name='v8-rule';Namespace=@('modified.example');Comment=$v8Comment;NameServers=@('192.0.2.53')
+  })
+  $script:removedNrpt=@()
+  Save-Json $StatePath $state8
+  $blocked8=$false
+  try{Restore-Own|Out-Null}catch{$blocked8=$true}
+  if(-not $blocked8 -or $script:removedNrpt.Count -ne 0 -or -not (Test-Path $StatePath)){
+   throw 'v8 removed an NRPT with a changed namespace.'
+  }
+  if((Inspect-JournalSnapshot $state8 $script:mockNrpt @()).Code -ne 'CONFLICT'){
+   throw 'v8 Inspector failed to flag changed policy namespace.'
+  }
+  $script:mockNrpt=@([pscustomobject]@{
+   Name='v8-rule';Namespace=@('example.org');Comment=$v8Comment;NameServers=@('192.0.2.54')
+  })
+  $blocked8=$false
+  try{Restore-Own|Out-Null}catch{$blocked8=$true}
+  if(-not $blocked8 -or $script:removedNrpt.Count -ne 0){throw 'v8 removed policy with changed DNS servers'}
+  $script:mockNrpt=@([pscustomobject]@{
+   Name='v8-rule';Namespace=@('example.org');Comment=$v8Comment;NameServers=@('192.0.2.53')
+  })
+  Restore-Own|Out-Null
+  if((Test-Path $StatePath) -or ($script:removedNrpt -join ',') -ne 'v8-rule'){
+   throw 'v8 exact NRPT tuple could not be safely recovered.'
+  }
+  $bad8=[pscustomobject]@{
+   version=8;ownerId=$ownerEight;wifiIndex=9;rules=@('v8-rule');
+   ruleDetails=@();routes=@();pendingRoutes=@();pendingRules=@()
+  }
+  $badRejected=$false
+  try{Assert-RecoveryJournal $bad8}catch{$badRejected=$true}
+  if(-not $badRejected){throw 'v8 missing identity metadata was accepted.'}
+  Write-Host 'v8 committed NRPT identity PASS: changed namespace/DNS rejected, exact tuple restored, missing metadata refused.'
+
+
   # Read-only Recovery Inspector classification matrix (no network writes).
   $mockOwned=[pscustomobject]@{
     Name='managed-rule';Namespace=@('example.org');Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')
