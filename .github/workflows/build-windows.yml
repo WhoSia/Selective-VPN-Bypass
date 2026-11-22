@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'main.go'
+      - '*.go'
       - 'go.mod'
       - 'src/**'
       - 'tests/**'
