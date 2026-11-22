@@ -211,7 +211,7 @@ function Get-FailureGuidance([string]$details,[int]$nativeErrorCode=0) {
  if($details -match '(?i)cannot create a fresh worker log|worker log must reside'){
   return '[LOG_UNAVAILABLE] The elevated helper could not create its result log. Check the Windows TEMP directory.'
  }
- if($details -match '(?i)recovery journal|invalid.*owner identity|unsupported.*schema|malformed.*configuration'){
+ if($details -match '(?i)recovery journal.*(invalid|missing|unsupported|corrupt|schema|unreadable)|invalid.*owner identity|unsupported.*schema|malformed.*configuration'){
   return '[JOURNAL_INVALID] Recovery records are unreadable or incompatible. Preserve their original bytes and run Inspect.'
  }
  if($details -match '(?i)ambiguous|duplicate matching route|unmanaged route|existing NRPT policy|ownership.*mismatch|another network operation'){
@@ -417,6 +417,7 @@ exit 0
       @{details='Operation was canceled by the user.';code=1223;expect='UAC_CANCELLED'},
       @{details='cannot create a fresh worker log';code=0;expect='LOG_UNAVAILABLE'},
       @{details='Recovery journal has unsupported schema';code=0;expect='JOURNAL_INVALID'},
+      @{details='Restore incomplete. Recovery journal retained.';code=0;expect='WORKER_FAILED'},
       @{details='Preflight: duplicate matching route candidates';code=0;expect='OWNERSHIP_CONFLICT'},
       @{details='Wi-Fi adapter is not connected.';code=0;expect='NETWORK_UNAVAILABLE'},
       @{details='Unhandled worker failure';code=0;expect='WORKER_FAILED'}
