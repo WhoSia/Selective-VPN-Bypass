@@ -498,6 +498,15 @@
 - **다음 게이트:** P0—격리 Windows VM에서 ACL과 고정 경로에 기반한 권위 저널 프로토타입을 별도 수락, 구버전 무단 이관 금지. P1—서로 다른 관리자 계정 UAC, 강제 종료 및 교차 세션 접근 검증. P2—비식별 요약만 복사하는 사용자 UX, 저장 데이터 최소화. 과도한 새 우회 기능 확장 지양.
 - **운영:** `main`에 WhoSia 직접 작성·커밋, GitHub Actions[bot] source commit 없음, 새 브랜치 만들지 않음.
 
+## 2026-11-23 — Follow-up P0 read-only safety regression tests [MAIN / CI PENDING]
+
+- **기준:** Chat Archive `1—20261014.md` 마지막 개발 우선순위 및 현재 main `9418911` 재검토. 관리자 전용 권위 저널 미구현, 구형 저널 무단 이관 금지 원칙 유지.
+- [`2e078f1`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/2e078f136cabbab2677955f7379a2d13199d66e9): 격리된 모의 ACL에서 `Everyone: Write`를 `BROAD_WRITE_ACE`로, `BUILTIN\\Users: ReadAndExecute`를 `ACL_UNVERIFIED`로 분리하는 읽기 전용 회귀 테스트. 실제 호스트 ACL/저널/네트워크 변경 없음.
+- [`06e51e1`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/06e51e1a1d2b4ff38960ce8e3c248aae358a7597): v8 복구 저널의 미완료 IPv4 경로와 완료된 NRPT 규칙을 각각 `BLOCKED_PENDING`, `BLOCKED_RECORDED_OBJECTS`로 분류하는 테스트 추가. 마이그레이션을 승인하거나 실행하는 기능은 추가하지 않음.
+- **미해결:** 관리자 권한 복구가 사용자 쓰기 가능 로컬 저널을 신뢰함. 동일 IPv4 라우트의 소유권 불명, 다른 관리자 계정 UAC, 교차 세션 Lock, 크래시 시점 원자성, GUI 간헐적 실패 모두 독립 수락 전.
+- **수락 상태:** 변경된 회귀 테스트를 main에 커밋했으나 최종 Windows CI 결과는 이 기록 시점에 아직 확인하지 않음. 결과 확인 전 PASS라고 기재하지 않는다.
+- **다음:** Windows CI/실제 Windows 격리 검증 후 `ProgramData` ACL·경로 신원·레거시 비파괴 프로토타입을 검토. 제품 Apply/Restore의 권위 저장소 자동 변경은 계속 금지.
+
 ## 이후 기록 템플릿
 
 ```markdown
