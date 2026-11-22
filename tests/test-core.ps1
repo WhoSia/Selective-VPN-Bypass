@@ -653,6 +653,13 @@ try{
     throw ("Read-only inspector dispatch failed: "+($output -join ' '))
   }
   if(Test-Path -LiteralPath $StatePath){throw 'Read-only inspector created or modified a recovery journal'}
+  $redactedLine=@($output|Where-Object{[string]$_ -like 'Redacted support summary: *'})
+  if($redactedLine.Count -ne 1){throw 'Inspector CLI did not emit exactly one redacted summary.'}
+  $safeJson=([string]$redactedLine[0]).Substring('Redacted support summary: '.Length)|ConvertFrom-Json
+  if($safeJson.Format -ne 'SVB-DIAG-v1' -or $safeJson.Journal -ne 'NO_JOURNAL' -or
+     $safeJson.VerifiedTraffic -ne $false){
+   throw 'Inspector CLI redacted summary lost core uncertainty information.'
+  }
   Write-Host 'Read-only recovery inspection command PASS: missing journal remains absent.'
 
   # Privileged-store readiness check is observational only. It must neither
