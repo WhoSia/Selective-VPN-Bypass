@@ -328,6 +328,25 @@ function Assert-RecoveryJournal($journal) {
   }
  }}
 }
+# Terminal entries prevent a later retry from deleting a newly-created
+# object with the same OS identity. These fields are optional for old journals.
+function Get-RestoreRouteKey($record,[int]$ifIndex) {
+ return ([string]$ifIndex+'|'+[string]$record.prefix+'|'+[string]$record.gateway)
+}
+function Save-RestoreCompletion($journal,[string]$field,[string]$key) {
+ if($field -notin @('restoreDoneRules','restoreDoneIntents','restoreDoneRoutes')){
+  throw 'Unsupported recovery completion field.'
+ }
+ $done=@()
+ if($null -ne $journal.PSObject.Properties[$field]){
+  $done=@($journal.$field | Where-Object {$_})
+ }else{
+  $journal | Add-Member -NotePropertyName $field -NotePropertyValue @()
+ }
+ if($done -ccontains $key){return}
+ $journal.$field=@($done+$key)
+ Save-Json $StatePath $journal
+}
 # Read-only, all-object preflight. This prevents a known conflict in a late
 # route from causing an earlier NRPT deletion. It does NOT make Restore atomic.
 function Get-RestorePreflight($st) {
@@ -335,7 +354,11 @@ function Get-RestorePreflight($st) {
  $owner=Get-JournalOwnerComment $st
  $ruleNames=@()
  $known=@($st.rules)
+ $doneRules=@($st.restoreDoneRules)
+ $doneIntents=@($st.restoreDoneIntents)
+ $doneRoutes=@($st.restoreDoneRoutes)
  foreach($name in $known){
+  if($doneRules -ccontains [string]$name){continue}
   $r=Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction SilentlyContinue
   if($null -eq $r){continue}
   if(@($r).Count -ne 1 -or [string]$r.Comment -cne $owner){
@@ -344,12 +367,14 @@ function Get-RestorePreflight($st) {
   if($ruleNames -notcontains ([string]$r.Name)){$ruleNames+=([string]$r.Name)}
  }
  foreach($intent in @(Pending-NrptRecords $st)){
+  if($doneIntents -ccontains ([string]$intent.namespace)){continue}
   foreach($r in @(Find-PendingOwnedNrpt $intent $owner)){
    if($ruleNames -notcontains ([string]$r.Name)){$ruleNames+=([string]$r.Name)}
   }
  }
  $routeItems=@()
  foreach($record in @(Route-Records $st)){
+  if($doneRoutes -ccontains (Get-RestoreRouteKey $record ([int]$st.wifiIndex))){continue}
   $found=@(Get-NetRoute -InterfaceIndex ([int]$st.wifiIndex) -AddressFamily IPv4 -ErrorAction Stop |
    Where-Object {Test-ManagedRouteMatch $_ $record ([int]$st.wifiIndex)})
   if($found.Count -gt 1){throw 'Preflight: duplicate matching route candidates; no changes made.'}
@@ -366,18 +391,38 @@ function Get-RestorePreflight($st) {
 function Restore-Own {
  $st=State
  if(!$st){Write-Output 'No managed state.';return}
- # No modification is attempted unless *all* recorded objects pass preflight.
+ # All recorded objects are checked before the first mutation. Preflight
+ # does not remove external TOCTOU races or produce atomic transactions.
  $plan=Get-RestorePreflight $st
  $errors=@()
  $owner=Get-JournalOwnerComment $st
  foreach($name in @($plan.RuleNames)){
   try{
-   $current=Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction Stop
-   if(@($current).Count -ne 1 -or [string]$current.Comment -cne $owner){
-    throw 'NRPT identity changed after preflight.'
+   $current=@(Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction SilentlyContinue)
+   if($current.Count -gt 1){throw 'NRPT identity became ambiguous.'}
+   if($current.Count -eq 1){
+    if([string]$current[0].Comment -cne $owner){throw 'NRPT identity changed after preflight.'}
+    Remove-DnsClientNrptRule -Name ([string]$name) -Force -ErrorAction Stop|Out-Null
    }
-   Remove-DnsClientNrptRule -Name ([string]$name) -Force -ErrorAction Stop|Out-Null
-  }catch{$errors+="NRPT removal failed: $_"}
+   $after=@(Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction Stop)
+   if($after.Count -ne 0){throw 'NRPT still exists after removal.'}
+   Save-RestoreCompletion $st 'restoreDoneRules' ([string]$name)
+  }catch{$errors+="NRPT removal or verification failed: $_"}
+ }
+ foreach($intent in @(Pending-NrptRecords $st)){
+  if(@($st.restoreDoneIntents) -ccontains ([string]$intent.namespace)){continue}
+  try {
+   $remaining=@(Find-PendingOwnedNrpt $intent $owner)
+   # A pending intent must never be marked complete if there are any
+   # ambiguous or mismatched candidates for that namespace.
+   if($remaining.Count -gt 0 -and @($remaining | Where-Object{
+     @($plan.RuleNames) -ccontains ([string]$_.Name)
+   }).Count -ne 0){
+    throw 'Pending NRPT still has a scheduled or remaining object.'
+   }
+   if($remaining.Count -gt 0){throw 'Pending NRPT still exists.'}
+   Save-RestoreCompletion $st 'restoreDoneIntents' ([string]$intent.namespace)
+  }catch{$errors+="Pending NRPT verification failed: $_"}
  }
  foreach($record in @($plan.Routes)){
   try{
@@ -386,17 +431,17 @@ function Restore-Own {
    $current=@(Get-NetRoute -InterfaceIndex ([int]$st.wifiIndex) -AddressFamily IPv4 -ErrorAction Stop|
     Where-Object {Test-ManagedRouteMatch $_ $record ([int]$st.wifiIndex)})
    if($current.Count -gt 1){throw 'Route ownership became ambiguous after preflight.'}
-   if($current.Count -eq 1){
-    Remove-NetRoute -InputObject $current[0] -Confirm:$false -ErrorAction Stop
-   }
-  }catch{$errors+="Route removal failed: $_"}
+   if($current.Count -eq 1){Remove-NetRoute -InputObject $current[0] -Confirm:$false -ErrorAction Stop}
+   $after=@(Get-NetRoute -InterfaceIndex ([int]$st.wifiIndex) -AddressFamily IPv4 -ErrorAction Stop|
+    Where-Object {Test-ManagedRouteMatch $_ $record ([int]$st.wifiIndex)})
+   if($after.Count -gt 0){throw 'Route still exists after removal.'}
+   Save-RestoreCompletion $st 'restoreDoneRoutes' (Get-RestoreRouteKey $record ([int]$st.wifiIndex))
+  }catch{$errors+="Route removal or verification failed: $_"}
  }
- # Postcondition is an independent observation, not an assumption from cmdlet
- # return codes. Missing objects count as already gone; conflicts retain state.
- try {
+ try{
   $remaining=Get-RestorePreflight $st
   if(@($remaining.RuleNames).Count -gt 0 -or @($remaining.Routes).Count -gt 0){
-   $errors+='Postcondition: one or more recorded objects remain.'
+   $errors+='Postcondition: one or more unresolved recorded objects remain.'
   }
  }catch{$errors+="Postcondition inspection failed: $_"}
  if($errors.Count){
@@ -404,7 +449,7 @@ function Restore-Own {
   throw 'Restore incomplete. Recovery journal retained.'
  }
  Remove-Item -LiteralPath $StatePath -Force -ErrorAction Stop
- Write-Output 'Recorded objects absent after verification. Recovery journal cleared.'
+ Write-Output 'Recorded objects absent or terminally completed; recovery journal cleared.'
 }
 # Read-only operations can proceed; all writes (including Apply/Restore) use
 # one cross-process writer lock. No implicit recovery if state is unfamiliar.
