@@ -34,6 +34,8 @@ $script:activeLogPath=$null
 $script:activeAction=$null
 $script:activeStarted=$null
 $script:pendingAddText=$null
+$script:actionStartedCount=0
+$script:actionFinishedCount=0
 $script:configInvalid=$false
 $form=New-Object Windows.Forms.Form
 $form.Text='Selective VPN Bypass - Preview'
@@ -288,6 +290,7 @@ $script:actionTimer.Add_Tick({
   }finally{
     if($script:activeProcess.HasExited){
       $script:actionTimer.Stop()
+      $script:actionFinishedCount++
       try{$script:activeProcess.Dispose()}catch{}
       if($script:activeLogPath){Remove-Item -LiteralPath $script:activeLogPath -Force -ErrorAction SilentlyContinue}
       $script:activeProcess=$null
@@ -338,6 +341,7 @@ function Run-Action([string]$action,[string]$target='') {
     $script:activeProcess=[Diagnostics.Process]::Start($p)
     if($null -eq $script:activeProcess){throw "Could not start $action."}
     $script:activeLogPath=$path
+    $script:actionStartedCount++
     $script:actionTimer.Start()
     return $true
   }catch{
@@ -435,10 +439,16 @@ exit 0
   function Wait-Idle([string]$step) {
     for($k=0;$k -lt 400;$k++){
       [Windows.Forms.Application]::DoEvents()
-      if(-not $script:running){return}
+      if(-not $script:running){
+        if($log.Text -match '^Running '){
+          throw "GUI state mismatch after $step : started=$script:actionStartedCount finished=$script:actionFinishedCount log=$($log.Text)"
+        }
+        return
+      }
       [Threading.Thread]::Sleep(25)
     }
-    throw "GUI remained busy after $step (10-second limit)"
+    $pidInfo=if($null -ne $script:activeProcess){[string]$script:activeProcess.Id}else{'none'}
+    throw "GUI remained busy after $step : started=$script:actionStartedCount finished=$script:actionFinishedCount action=$script:activeAction process=$pidInfo (10-second limit)"
   }
   function Assert-Items([string[]]$expected,[string]$label) {
     Update-Items
@@ -492,7 +502,11 @@ exit 0
     Click-Button $remove; Wait-Idle 'remove selected'
     Assert-Items @('example.com','example.wiki','192.0.2.10') 'remove'
     for($i=0;$i -lt 3;$i++){
+      $countBefore=$script:actionStartedCount
       Click-Button ($top[1][0])
+      if($script:actionStartedCount -ne ($countBefore+1)){
+        throw "Apply cycle $i did not launch a worker: started=$script:actionStartedCount finished=$script:actionFinishedCount buttonEnabled=$($top[1][0].Enabled)"
+      }
       if($i -eq 0){
         $entry.Text='busy.example'
         Click-Button $add
