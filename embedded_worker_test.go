@@ -57,6 +57,27 @@ func TestPowerShellSingleQuoteEscaping(t *testing.T){
 
 // Runs the same stdin bootstrap as the embedded elevated helper but invokes
 // the read-only list action in an isolated folder: no network privileges.
+func TestEmbeddedWorkerUnicodeLog(t *testing.T){
+ temp:=t.TempDir()
+ logPath:=filepath.Join(temp,"svb-unicode.log")
+ file,err:=openNewWorkerLog(logPath)
+ if err!=nil{t.Fatal(err)}
+ script:=[]byte("param([string]$Action,[string]$ConfigDir)\nWrite-Output '진단 완료: 연결 정상'\n")
+ p:=filepath.Join(os.Getenv("SystemRoot"),"System32","WindowsPowerShell","v1.0","powershell.exe")
+ cmd:=exec.Command(p,"-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-EncodedCommand",utf16EncodedCommand(workerBootstrap))
+ cmd.Stdin=strings.NewReader(embeddedCoreWrapper(script,"list",temp))
+ cmd.Stdout=file
+ cmd.Stderr=file
+ err=cmd.Run()
+ _=file.Close()
+ if err!=nil{raw,_:=os.ReadFile(logPath);t.Fatalf("unicode worker failed: %v: %s",err,raw)}
+ raw,err:=os.ReadFile(logPath)
+ if err!=nil{t.Fatal(err)}
+ if !strings.Contains(string(raw),"진단 완료: 연결 정상"){
+  t.Fatalf("worker log did not preserve UTF-8 output: %q",raw)
+ }
+}
+
 func TestEmbeddedPowerShellBootstrapList(t *testing.T){
  core,err:=scripts.ReadFile("src/Core.ps1");if err!=nil{t.Fatal(err)}
  tmp:=t.TempDir()
