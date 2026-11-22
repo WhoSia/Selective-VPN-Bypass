@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-23 KST):** [Windows portable: safer privileged worker, actionable diagnostics and targets-only Backup](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45039328840) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · ZIP SHA-256 `B5CB74CAF6135671202E43E7EC34DCAF6347FF73867857C1C171ABF4187186F5`. Windows PowerShell journal/route/NRPT tests, GUI button-click and backup regressions, Go exclusive-log and UTF-8 Korean output tests, Windows x64 compile and ZIP upload PASS. The isolated Windows network recovery test [45021001380](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45021001380) was run for the unchanged routing core, **not** the newer GUI/worker log changes. No general-security certification or live SoftEther guarantee.
+**Latest verified CI package (2026-11-23 KST):** [Windows portable: v8 committed-NRPT identity validation and safer recovery storage](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45053913858) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · inside ZIP SHA-256 `EBE7A4D7918F59D2E8259B0F8986420749138E78E29054F62CA4F207DC3DE8B1`. PowerShell/WinForms/Go regression, v8 identity/conflict rejection, JSON replacement-failure, preflight efficiency, Windows x64 compilation and artifact upload PASS. [Ephemeral Windows NRPT/route integration](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45053913882) PASS, including v8 DNS tuple mismatch rejection and exact restoration. The application has NOT passed a real SoftEther end-to-end or privileged-journal authentication assessment.
 
 ## Features
 
@@ -23,7 +23,9 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 ## Architecture
 
-The Go executable now invokes its embedded Core PowerShell source **from memory for elevated Apply/Restore**, without loading a writable runtime-v4 script for privileged work. Read-only/list editing still uses the normal PowerShell worker. The privileged helper allows only Apply/Restore and validates the portable configuration folder and worker log name. The executable is not code-signed, so this is a trust-boundary hardening step, not verified resistance to executable replacement or every local attack.\n\nGo executable embeds three PowerShell sources: `src/Gui.ps1` (WinForms UI), `src/Core.ps1` (validation/routing), `src/Worker.ps1` (command worker). This is **not** yet a native Go UI toolkit. A fully modern high-DPI interface is a future improvement; the preview uses DPI-scaled layout and needs real-world display testing.
+The Go executable now invokes its embedded Core PowerShell source **from memory for elevated Apply/Restore**, without loading a writable runtime-v4 script for privileged work. Read-only/list editing still uses the normal PowerShell worker. The privileged helper allows only Apply/Restore and validates the portable configuration folder and worker log name. The executable is not code-signed, so this is a trust-boundary hardening step, not verified resistance to executable replacement or every local attack.
+
+Go executable embeds three PowerShell sources: `src/Gui.ps1` (WinForms UI), `src/Core.ps1` (validation/routing), `src/Worker.ps1` (command worker). This is **not** yet a native Go UI toolkit. A fully modern high-DPI interface is a future improvement; the preview uses DPI-scaled layout and needs real-world display testing.
 
 ## Status display and recovery expectations
 
@@ -33,7 +35,7 @@ Use Add to save an entry; it does not immediately activate the entry. If Add fai
 
 Before moving or replacing portable folders, inspect any outstanding journal and avoid deleting the recovery state without knowing whether network objects remain. Do not share unredacted diagnostics that contain local addresses, network configuration or usernames.
 
-For an independent engineering review covering user burden, failure states, security assumptions and verification gaps, see [AUDIT_2026-11-22.md](AUDIT_2026-11-22.md).
+For an independent engineering review covering user burden, failure states, security assumptions and verification gaps, see [AUDIT_2026-11-22.md](AUDIT_2026-11-22.md). The latest critical self-review is [MAINTAINER_ADVERSARIAL_REVIEW_2026-11-23.md](MAINTAINER_ADVERSARIAL_REVIEW_2026-11-23.md); it documents release-blocking limitations rather than declaring the product production-ready.
 
 ## Recovery Inspector (read-only)
 
@@ -51,13 +53,23 @@ If Windows has owner-tagged NRPT policies not attributable to the journal for th
 
 For tasks taking longer than 30 seconds, the GUI explains that an operation is ongoing. Past 120 seconds it recommends read-only inspection after any interruption, without killing Apply/Restore automatically. These notices are advisory: there is no network transaction cancellation guarantee, and a long-running process can still require controlled diagnostics.
 
-## Journal-bound ownership (v7) and legacy recovery
+## Journal-bound ownership (v8) and legacy recovery
 
-New `Apply` operations create a **version 7 journal** with a random operation identifier saved before Windows policy changes. The new NRPT rules use `Selective-VPN-Bypass-owned:<operation-UUID>` in their Comment field. Restore and Inspect require the exact identifier for these rules. A missing or invalid identifier in a v7 journal is an error, **not** a reason to fall back to legacy ownership.
+**New Apply creates a version 8 journal.** In addition to the operation UUID and matching owner-tagged NRPT Comment introduced with v7, each committed NRPT record now keeps the Windows Name, exact namespace and expected DNS server set. Preflight, Restore and Inspector compare these fields before treating a policy as managed. If the same named and owner-tagged Windows rule has changed namespace or DNS servers, Restore refuses to remove it and preserves the journal.
 
-Older v6 (and earlier) journals continue to use the legacy Comment for Restore; their identity is less specific. Newly launched Apply operations **never automatically adopt a policy merely because it has the old owner tag**, even when DNS servers and namespace match. If an old orphaned policy remains, use Inspect and review it carefully before making system changes. The app does not delete foreign policies as part of this migration.
+Version 8 requires a complete, unique `ruleDetails` record per committed rule. An incomplete or malformed v8 record must not silently degrade to v7 ownership checks. Interrupted Apply operations continue to use their already-written `pendingRules` intents for crash reconciliation.
 
-An operation UUID is an **accidental-collision discriminator, not a cryptographic identity**. Other applications with administrator access can imitate this Comment, and an IPv4 route is not tagged with the NRPT owner identity. Different portable folders remain independent and may still conflict over routes. This release strengthens NRPT recovery boundaries but does not promise multi-instance isolation for all Windows network objects.
+Older v3–v7 journals remain readable under their original compatibility rules. Existing portable journals are **not automatically converted** into an authenticated record, and their historic Name-only entries cannot prove DNS tuple equality. The application refuses to adopt an unrelated orphan policy based merely on an owner tag.
+
+**An operation UUID and NRPT Comment are not cryptographic credentials.** A writable portable journal can be modified, and IPv4 routes still lack an authenticated creator identity. v8 provides stronger drift detection but does not solve the privileged journal trust boundary.
+
+## Write failures, read-only file boundary and recovery overhead
+
+The JSON writer uses temporary files and Windows same-volume replacement. If replacement fails after a backup is created, it **retains that backup** rather than deleting it without inspection. A locked-destination regression confirms preservation of original bytes. This is not a guarantee against sudden power loss; there is no verified durable flush protocol.
+
+Before elevated Apply or Restore, the Go helper refuses a Portable directory or named saved-list/recovery-journal path that is not an ordinary filesystem object in its current observation. The check is a limited `Lstat` preflight: it does not establish file-handle identity, prove ACL authority, inspect every ancestor junction, or eliminate hardlinks and replacement races. Legitimate symlink-based Portable layouts may now be rejected until manually reviewed.
+
+Full Restore preflight now reads the committed NRPT inventory once rather than querying Windows separately for each completed rule, while per-object queries immediately before mutation remain in place. This reduces avoidable system calls; it is not a promise of overall linear-time execution.
 
 ## Cross-folder coordination and recovery journal validation
 
