@@ -293,7 +293,8 @@ function Assert-RecoveryJournal($journal) {
   throw 'Recovery journal requires route and DNS rule arrays.'
  }
  if($version -ge 7){[void](Get-JournalOwnerComment $journal)}
- $routeList=@($journal.routes)+@($journal.pendingRoutes)
+ $routeList=@($journal.routes)
+ if($null -ne $journal.pendingRoutes){$routeList+=@($journal.pendingRoutes)}
  if($routeList.Count -gt 4096){throw 'Recovery journal contains too many routes.'}
  foreach($record in $routeList){
   if($null -eq $record){throw 'Recovery journal has a null route record.'}
@@ -312,7 +313,7 @@ function Assert-RecoveryJournal($journal) {
  foreach($name in @($journal.rules)){
   if([string]::IsNullOrWhiteSpace([string]$name)){throw 'Blank recovery journal DNS rule identifier.'}
  }
- foreach($intent in @($journal.pendingRules)){
+ if($null -ne $journal.pendingRules){foreach($intent in @($journal.pendingRules)){
   if($null -eq $intent -or [string]::IsNullOrWhiteSpace([string]$intent.namespace) -or @($intent.servers).Count -eq 0){
    throw 'Invalid pending DNS journal entry.'
   }
@@ -325,7 +326,7 @@ function Assert-RecoveryJournal($journal) {
   foreach($server in @($intent.servers)){
    if(-not (Is-IPv4 ([string]$server))){throw 'Invalid pending DNS server.'}
   }
- }
+ }}
 }
 function Restore-Own {
  $st=State
