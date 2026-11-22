@@ -206,6 +206,16 @@ function Find-PendingOwnedNrpt($intent,[string]$expectedComment=$OwnerComment){
 # It never creates ProgramData directories, changes ACLs, or promotes a legacy
 # user-writable journal into an authority. ACL observations are not a proof of
 # effective access or of authentic journal provenance.
+# FullControl is NOT suitable as a bitmask for testing write permissions:
+# it contains READ bits too. Compare only write/delete/ACL-changing bits.
+function Test-WriteCapableFileRights($rights) {
+ $writeMask=[int]([Security.AccessControl.FileSystemRights]::Write -bor
+  [Security.AccessControl.FileSystemRights]::Modify -bor
+  [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+  [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+  [Security.AccessControl.FileSystemRights]::TakeOwnership)
+ return (([int]$rights -band $writeMask) -ne 0)
+}
 function Get-PrivilegedStoreHealth([string]$commonDataRoot='') {
  try {
   if([string]::IsNullOrWhiteSpace($commonDataRoot)){
@@ -229,15 +239,13 @@ function Get-PrivilegedStoreHealth([string]$commonDataRoot='') {
    }
   }
   $acl=Get-Acl -LiteralPath $folder -ErrorAction Stop
-  $mask=[int]([Security.AccessControl.FileSystemRights]::Write -bor
-    [Security.AccessControl.FileSystemRights]::Modify -bor
-    [Security.AccessControl.FileSystemRights]::FullControl)
+
   foreach($ace in @($acl.Access)){
    if($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow){continue}
    $id=[string]$ace.IdentityReference.Value
    try{$id=$ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value}catch{}
    if($id -notin @('S-1-1-0','S-1-5-11','S-1-5-32-545','Everyone','BUILTIN\Users','NT AUTHORITY\Authenticated Users')){continue}
-   if((([int]$ace.FileSystemRights) -band $mask) -ne 0){
+   if(Test-WriteCapableFileRights $ace.FileSystemRights){
     return [pscustomobject]@{Code='BROAD_WRITE_ACE';Reason='Broad write permission found in directory ACL. Effective access requires administrator review.'}
    }
   }
