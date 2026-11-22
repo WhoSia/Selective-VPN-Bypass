@@ -171,6 +171,21 @@ function Pending-NrptRecords($state){
  }
  return $items
 }
+# v8 binds Windows rule Name to an expected namespace and DNS server set.
+# Earlier journals remain supported with their original weaker checks.
+function Get-CommittedRuleRecord($journal,[string]$name) {
+ if([int]$journal.version -lt 8){return $null}
+ $records=@($journal.ruleDetails|Where-Object{[string]$_.name -ceq $name})
+ if($records.Count -ne 1){throw 'Committed NRPT detail record is missing or duplicated.'}
+ return $records[0]
+}
+function Test-CommittedNrptIdentity($rule,$journal,[string]$name) {
+ if([string]$rule.Name -cne $name){return $false}
+ if([string]$rule.Comment -cne (Get-JournalOwnerComment $journal)){return $false}
+ if([int]$journal.version -lt 8){return $true}
+ $record=Get-CommittedRuleRecord $journal $name
+ return (Test-CompatibleOwnedNrpt $rule ([string]$record.namespace) @($record.servers) (Get-JournalOwnerComment $journal))
+}
 function Find-PendingOwnedNrpt($intent,[string]$expectedComment=$OwnerComment){
  $rules=@(Get-NamespaceRules ([string]$intent.namespace))
  if($rules.Count -eq 0){return @()}
@@ -256,7 +271,7 @@ function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
   $found=@($nrptRules|Where-Object{[string]$_.Name -ceq [string]$ruleName})
   if($found.Count -gt 1){$conflict++;continue}
   if($found.Count -eq 0){$missing++;continue}
-  if([string]$found[0].Comment -cne $expectedComment){$conflict++}
+  if(-not (Test-CommittedNrptIdentity $found[0] $journal ([string]$ruleName))){$conflict++}
  }
  foreach($intent in $pending){
   if($doneIntents -ccontains ([string]$intent.namespace)){continue}
@@ -338,7 +353,7 @@ function Get-UnattributedOwnedNrpt($journal,$nrptRules) {
 function Assert-RecoveryJournal($journal) {
  if($null -eq $journal){throw 'Recovery journal missing.'}
  $version=0;$index=0
- if(-not [int]::TryParse([string]$journal.version,[ref]$version) -or $version -lt 3 -or $version -gt 7){
+ if(-not [int]::TryParse([string]$journal.version,[ref]$version) -or $version -lt 3 -or $version -gt 8){
   throw 'Unsupported recovery journal schema.'
  }
  if(-not [int]::TryParse([string]$journal.wifiIndex,[ref]$index) -or $index -le 0){
@@ -348,6 +363,32 @@ function Assert-RecoveryJournal($journal) {
   throw 'Recovery journal requires route and DNS rule arrays.'
  }
  if($version -ge 7){[void](Get-JournalOwnerComment $journal)}
+ if($version -ge 8){
+  if($journal.ruleDetails -isnot [array] -or @($journal.ruleDetails).Count -ne @($journal.rules).Count){
+   throw 'Version 8 journal requires one detail record per committed NRPT rule.'
+  }
+  $seen=@()
+  foreach($record in @($journal.ruleDetails)){
+   $name=[string]$record.name
+   if([string]::IsNullOrWhiteSpace($name) -or $seen -ccontains $name -or @($journal.rules) -cnotcontains $name){
+    throw 'Version 8 journal has an unrecognized or duplicate NRPT rule.'
+   }
+   $seen+=,$name
+   $ns=[string]$record.namespace
+   if([string]::IsNullOrWhiteSpace($ns) -or @($record.servers).Count -eq 0){
+    throw 'Version 8 journal missing DNS policy namespace or servers.'
+   }
+   $hostName=$ns.TrimStart('.')
+   if(($ns -cne $hostName -and $ns -cne ('.'+$hostName)) -or
+      (Normalize-Target $hostName) -cne $hostName -or (Is-IPv4 $hostName)){
+    throw 'Version 8 journal contains an invalid policy namespace.'
+   }
+   foreach($server in @($record.servers)){
+    if(-not (Is-IPv4 ([string]$server))){throw 'Version 8 journal contains an invalid DNS server.'}
+   }
+  }
+ }
+
  $routeList=@($journal.routes)
  if($null -ne $journal.pendingRoutes){$routeList+=@($journal.pendingRoutes)}
  if($routeList.Count -gt 4096){throw 'Recovery journal contains too many routes.'}
@@ -438,7 +479,7 @@ function Get-RestorePreflight($st) {
   if($doneRules -ccontains [string]$name){continue}
   $r=@(Get-DnsClientNrptRule -ErrorAction Stop | Where-Object { [string]$_.Name -ceq [string]$name })
   if($r.Count -eq 0){continue}
-  if($r.Count -ne 1 -or [string]$r.Comment -cne $owner){
+  if($r.Count -ne 1 -or -not (Test-CommittedNrptIdentity $r[0] $st ([string]$name))){
    throw "Preflight: recorded NRPT identity is ambiguous or mismatched."
   }
   if($ruleNames -notcontains ([string]$r.Name)){$ruleNames+=([string]$r.Name)}
@@ -479,7 +520,7 @@ function Restore-Own {
    $current=@(Get-DnsClientNrptRule -ErrorAction Stop | Where-Object { [string]$_.Name -ceq [string]$name })
    if($current.Count -gt 1){throw 'NRPT identity became ambiguous.'}
    if($current.Count -eq 1){
-    if([string]$current[0].Comment -cne $owner){throw 'NRPT identity changed after preflight.'}
+    if(-not (Test-CommittedNrptIdentity $current[0] $st ([string]$name))){throw 'NRPT identity changed after preflight.'}
     Remove-DnsClientNrptRule -Name ([string]$name) -Force -ErrorAction Stop|Out-Null
    }
    $after=@(Get-DnsClientNrptRule -ErrorAction Stop | Where-Object { [string]$_.Name -ceq [string]$name })
@@ -692,7 +733,7 @@ try {
   }
   if(State){Restore-Own}
   if(!$ips.Count -and !$hostnames.Count){Write-Output 'No exceptions saved. Nothing to apply.';break}
-  $st=[ordered]@{version=7;ownerId=([guid]::NewGuid().ToString('D'));wifiIndex=[int]$wifi.ifIndex;routes=@();pendingRoutes=@();rules=@()}
+  $st=[ordered]@{version=8;ownerId=([guid]::NewGuid().ToString('D'));wifiIndex=[int]$wifi.ifIndex;routes=@();pendingRoutes=@();rules=@();ruleDetails=@()}
   Save-Json $StatePath $st
   try{
    foreach($n in $hostnames){
@@ -711,6 +752,7 @@ try {
      Save-Json $StatePath $st
      $r=Add-DnsClientNrptRule -Namespace $ns -NameServers $dns -Comment (Get-JournalOwnerComment $st) -PassThru -ErrorAction Stop
      $st.rules+=([string]$r.Name)
+     $st.ruleDetails+=@{name=([string]$r.Name);namespace=$ns;servers=@($dns)}
      $st.pendingRules=@($st.pendingRules|Where-Object{$_.namespace -cne $ns})
      Save-Json $StatePath $st
     }
