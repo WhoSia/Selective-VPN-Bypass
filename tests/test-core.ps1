@@ -94,6 +94,27 @@ try {
     throw 'Multi-namespace rules must not be adopted as exact matches.'
   }
   Write-Host 'NRPT reconciliation predicate PASS: owned exact, foreign, mismatched DNS, wrong namespace, mixed namespace.'
+
+  # A replacement that cannot acquire the destination must not wipe or
+  # rewrite the original user data; temporary staging files are disposable.
+  $lockedJson=Join-Path $testDir 'atomic-replace-locked.json'
+  [IO.File]::WriteAllText($lockedJson,'{"original":"preserve"}',[Text.UTF8Encoding]::new($false))
+  $originalLocked=[IO.File]::ReadAllBytes($lockedJson)
+  $handle=[IO.File]::Open($lockedJson,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+  $replaceFailed=$false
+  try{
+   try{Save-Json $lockedJson ([ordered]@{changed=$true})}catch{$replaceFailed=$true}
+  }finally{$handle.Dispose()}
+  $afterLocked=[IO.File]::ReadAllBytes($lockedJson)
+  if(-not $replaceFailed -or
+     [Convert]::ToBase64String($originalLocked) -cne [Convert]::ToBase64String($afterLocked)){
+   throw 'Blocked atomic Save-Json unexpectedly modified the original document.'
+  }
+  if(@(Get-ChildItem -LiteralPath $testDir -Filter 'atomic-replace-locked.json.*.tmp').Count -ne 0){
+   throw 'Blocked Save-Json left temporary JSON staging files.'
+  }
+  Write-Host 'Atomic save failure PASS: locked destination preserved and temporary files removed.'
+
   # Pure route identity and journal reconciliation regression tests.
   $rec=[pscustomobject]@{prefix='192.0.2.10/32';gateway='192.0.2.1'}
   $mockRoute=[pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.1';InterfaceIndex=9;RouteMetric=1}
