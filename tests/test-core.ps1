@@ -518,6 +518,35 @@ try{
   if(Test-Path -LiteralPath $StatePath){throw 'Read-only inspector created or modified a recovery journal'}
   Write-Host 'Read-only recovery inspection command PASS: missing journal remains absent.'
 
+  # Privileged-store readiness check is observational only. It must neither
+  # create an authority directory nor overwrite any existing object.
+  $fakeCommonData=Join-Path $testDir 'fake-common-data'
+  New-Item -ItemType Directory -Path $fakeCommonData -Force|Out-Null
+  $store=Join-Path $fakeCommonData 'SelectiveVPNBypass'
+  $initialTrust=Get-PrivilegedStoreHealth $fakeCommonData
+  if($initialTrust.Code -ne 'NOT_CONFIGURED' -or (Test-Path -LiteralPath $store)){
+   throw 'Trust inspection incorrectly initialized an absent privileged store.'
+  }
+  Set-Content -LiteralPath $store -Value 'preserve existing file' -Encoding UTF8
+  $beforeStore=[IO.File]::ReadAllBytes($store)
+  $wrongObject=Get-PrivilegedStoreHealth $fakeCommonData
+  $afterStore=[IO.File]::ReadAllBytes($store)
+  if($wrongObject.Code -ne 'UNSAFE_PATH' -or
+     ([Convert]::ToBase64String($beforeStore)) -cne ([Convert]::ToBase64String($afterStore))){
+   throw 'Trust inspection changed or accepted an invalid store path.'
+  }
+  Remove-Item -LiteralPath $store -Force
+  New-Item -ItemType Directory -Path $store -Force|Out-Null
+  $directoryResult=Get-PrivilegedStoreHealth $fakeCommonData
+  if($directoryResult.Code -notin @('ACL_UNVERIFIED','BROAD_WRITE_ACE','UNKNOWN')){
+   throw ('Unexpected ACL inspection result: '+$directoryResult.Code)
+  }
+  if(@(Get-ChildItem -LiteralPath $store -Force).Count -ne 0){
+   throw 'Trust inspection wrote to privileged-store test directory.'
+  }
+  Write-Host 'Privileged store read-only diagnostics PASS: absent store, invalid object, ACL observation, zero writes.'
+
+
   # A broken file must not be silently repaired, overwritten, or treated as empty.
   $originalConfig=Get-Content -LiteralPath $ConfigPath -Raw
   try{
