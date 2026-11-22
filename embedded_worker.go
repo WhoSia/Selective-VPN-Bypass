@@ -59,6 +59,11 @@ func embeddedCoreWrapper(core []byte,action,dir string) string {
   "}\n"
 }
 
+func openNewWorkerLog(path string) (*os.File,error) {
+ // No truncation and no following a pre-existing file or symlink.
+ return os.OpenFile(path,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+}
+
 func runEmbeddedWorker(args []string) error {
  fs:=flag.NewFlagSet("embedded-worker",flag.ContinueOnError)
  fs.SetOutput(os.Stderr)
@@ -79,7 +84,7 @@ func runEmbeddedWorker(args []string) error {
  // O_EXCL refuses existing files, including pre-planted links. Keep the
  // handle open across child execution so privileged PowerShell never resolves
  // or writes the caller-controlled pathname itself.
- log,err:=os.OpenFile(*logPath,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+ log,err:=openNewWorkerLog(*logPath)
  if err!=nil{return fmt.Errorf("cannot create a fresh worker log: %w",err)}
  defer log.Close()
  cmd.Stdin=strings.NewReader(embeddedCoreWrapper(core,*action,*dir))
