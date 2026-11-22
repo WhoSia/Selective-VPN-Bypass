@@ -11,7 +11,7 @@ import (
 func TestWorkerArgumentBoundary(t *testing.T) {
  exe:=filepath.Join(t.TempDir(),"SelectiveVPNBypass_GUI.exe")
  dir:=filepath.Dir(exe)
- log:=filepath.Join(t.TempDir(),"svb-0123456789abcdef0123456789abcdef.log")
+ log:=filepath.Join(os.TempDir(),"svb-0123456789abcdef0123456789abcdef.log")
  if err:=validateWorkerArguments(exe,"apply",dir,log);err!=nil{t.Fatal(err)}
  if err:=validateWorkerArguments(exe,"restore",dir,log);err!=nil{t.Fatal(err)}
  cases:=[]struct{action,config,log string}{
@@ -19,6 +19,7 @@ func TestWorkerArgumentBoundary(t *testing.T) {
   {"status",dir,log},
   {"apply",filepath.Join(dir,"other"),log},
   {"apply",dir,filepath.Join(t.TempDir(),"different.log")},
+  {"apply",dir,filepath.Join(t.TempDir(),"svb-0123456789abcdef0123456789abcdef.log")},
  }
  for _,c:=range cases {
   if err:=validateWorkerArguments(exe,c.action,c.config,c.log);err==nil{
@@ -40,8 +41,13 @@ func TestEmbeddedPowerShellBootstrapList(t *testing.T){
  log:=filepath.Join(tmp,"svb-0123456789abcdef0123456789abcdef.log")
  p:=filepath.Join(os.Getenv("SystemRoot"),"System32","WindowsPowerShell","v1.0","powershell.exe")
  cmd:=exec.Command(p,"-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-EncodedCommand",utf16EncodedCommand(workerBootstrap))
- cmd.Stdin=strings.NewReader(embeddedCoreWrapper(core,"list",tmp,log))
- output,err:=cmd.CombinedOutput()
- if err!=nil{t.Fatalf("embedded list failed: %v output=%s",err,output)}
+ cmd.Stdin=strings.NewReader(embeddedCoreWrapper(core,"list",tmp))
+ outFile,err:=os.OpenFile(log,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+ if err!=nil{t.Fatal(err)}
+ cmd.Stdout=outFile
+ cmd.Stderr=outFile
+ err=cmd.Run()
+ _=outFile.Close()
+ if err!=nil{output,_:=os.ReadFile(log);t.Fatalf("embedded list failed: %v output=%s",err,output)}
  if _,err:=os.Stat(log);err!=nil{t.Fatalf("embedded worker failed to write log: %v",err)}
 }
