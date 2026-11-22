@@ -540,6 +540,30 @@ try{
   if(-not $badRejected){throw 'v8 missing identity metadata was accepted.'}
   Write-Host 'v8 committed NRPT identity PASS: changed namespace/DNS rejected, exact tuple restored, missing metadata refused.'
 
+  # Preflight must take a single snapshot for N committed NRPT rules.
+  $script:mockNrpt=@(
+   [pscustomobject]@{Name='snapshot-a';Namespace=@('a.example');Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')},
+   [pscustomobject]@{Name='snapshot-b';Namespace=@('b.example');Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')}
+  )
+  $script:nrptInventoryReads=0
+  function Get-DnsClientNrptRule {
+   [CmdletBinding()]
+   param([string]$Name)
+   $script:nrptInventoryReads++
+   if($Name){return @($script:mockNrpt|Where-Object{$_.Name -eq $Name})}
+   return $script:mockNrpt
+  }
+  $snapshotJournal=[pscustomobject]@{
+   version=6;wifiIndex=9;rules=@('snapshot-a','snapshot-b');
+   routes=@();pendingRoutes=@();pendingRules=@()
+  }
+  $preflight=Get-RestorePreflight $snapshotJournal
+  if($preflight.RuleNames.Count -ne 2 -or $script:nrptInventoryReads -ne 1){
+   throw 'Preflight queried Windows NRPT separately for each committed rule.'
+  }
+  Write-Host 'NRPT preflight efficiency PASS: two recorded rules resolved from one Windows snapshot.'
+
+
 
   # Read-only Recovery Inspector classification matrix (no network writes).
   $mockOwned=[pscustomobject]@{
