@@ -28,6 +28,37 @@ func TestWorkerArgumentBoundary(t *testing.T) {
  }
 }
 
+func TestElevatedPortableFileBoundary(t *testing.T) {
+ dir:=t.TempDir()
+ if err:=validatePortableFileBoundary(dir);err!=nil{t.Fatal(err)}
+ config:=filepath.Join(dir,"Selective-VPN-Bypass.domains.json")
+ if err:=os.WriteFile(config,[]byte("{\"domains\":[]}"),0600);err!=nil{t.Fatal(err)}
+ if err:=validatePortableFileBoundary(dir);err!=nil{t.Fatal(err)}
+ if err:=os.Remove(config);err!=nil{t.Fatal(err)}
+ if err:=os.Mkdir(config,0700);err!=nil{t.Fatal(err)}
+ if err:=validatePortableFileBoundary(dir);err==nil{
+  t.Fatal("accepted a directory in place of a Portable configuration file")
+ }
+ if err:=os.Remove(config);err!=nil{t.Fatal(err)}
+ journal:=filepath.Join(dir,"Selective-VPN-Bypass_v3.state.json")
+ if err:=os.Mkdir(journal,0700);err!=nil{t.Fatal(err)}
+ if err:=validatePortableFileBoundary(dir);err==nil{
+  t.Fatal("accepted a directory in place of recovery journal")
+ }
+ if err:=os.Remove(journal);err!=nil{t.Fatal(err)}
+ // Creating symbolic links can require developer mode on Windows. Where
+ // supported, verify the elevated worker explicitly rejects a redirected file.
+ target:=filepath.Join(t.TempDir(),"target.json")
+ if err:=os.WriteFile(target,[]byte("preserve"),0600);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink(target,config);err==nil{
+  if err:=validatePortableFileBoundary(dir);err==nil{
+   t.Fatal("accepted redirected configuration file")
+  }
+  if err:=os.Remove(config);err!=nil{t.Fatal(err)}
+ }
+ if err:=validatePortableFileBoundary(dir);err!=nil{t.Fatal(err)}
+}
+
 func TestWorkerLogExclusive(t *testing.T) {
  dir:=t.TempDir()
  path:=filepath.Join(dir,"svb-test.log")
