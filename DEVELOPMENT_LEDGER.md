@@ -507,6 +507,15 @@
 - **수락 상태:** 변경된 회귀 테스트를 main에 커밋했으나 최종 Windows CI 결과는 이 기록 시점에 아직 확인하지 않음. 결과 확인 전 PASS라고 기재하지 않는다.
 - **다음:** Windows CI/실제 Windows 격리 검증 후 `ProgramData` ACL·경로 신원·레거시 비파괴 프로토타입을 검토. 제품 Apply/Restore의 권위 저장소 자동 변경은 계속 금지.
 
+## 2026-11-23 — Ancestor redirection preflight for elevated Portable worker [MAIN / CI PENDING]
+
+- **재검토:** `embedded_worker.go`의 `validatePortableFileBoundary`는 기존에 마지막 Portable 디렉터리와 JSON 2개만 `Lstat`했다. 마지막 폴더가 정상 디렉터리라도 상위 디렉터리가 junction/symlink이면 관리자 Worker의 경로 가정이 어긋날 수 있다.
+- [`e52d2ca`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/e52d2ca78584c0ffee60ce64cd2a41ac002c5fb9): 최종 Portable 디렉터리부터 볼륨 루트까지 상위 구성 요소 각각을 `os.Lstat`으로 조회하고 리디렉션 및 비디렉터리를 거부. 기존 네트워크 Apply/Restore 동작은 유지하되 해당 경로에 해당하면 명시적 실패.
+- [`62c9cfe`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/62c9cfe0e32b24134679f8cf9e206cf5d35fdd6f): 정상 하위 폴더/리디렉션된 상위 폴더를 비교하는 Go 테스트 추가. Windows에서 symlink 생성 권한이 없는 경우 검사는 건너뛰므로 **junction/ACL/TOCTOU 전체 검증 통과라고 주장하지 않는다.**
+- **한계:** 파일 식별자를 고정한 핸들 기반 검증이 아니며 경로 치환 경쟁, hardlink, ACL 소유권 증명, 교차 관리자 계정 UAC 문제는 남는다. 사용자 수정 가능 복구 저널의 권위 문제(P0) 역시 그대로 남아 있다.
+- **검증 상태:** 새 코드의 Windows Portable CI 결과 확인 전; 격리 Windows 실제 NRPT/route 변경은 이 변경 단위에서 시행하지 않음. 성공 여부는 실제 Actions 완료 후 판정.
+- **방향:** 안전한 거부 경계 강화와 권위 저장소 구축을 구분하여, disposable Windows VM에서 경로 정체성/ACL/크래시 복구를 독립적으로 수락하기 전 자동 마이그레이션 금지.
+
 ## 이후 기록 템플릿
 
 ```markdown
