@@ -118,7 +118,7 @@ $right.Controls.Add($other[0],0,2)
 $log=New-Object Windows.Forms.TextBox
 $log.Multiline=$true;$log.ReadOnly=$true;$log.ScrollBars='Vertical'
 $log.Dock='Fill';$log.Font=New-Object Drawing.Font('Consolas',9)
-$log.Text='No changes applied. Apply and Restore require administrator approval.'
+$log.Text='Network state has not been verified. Use Inspect to review the journal. Apply and Restore require administrator approval.'
 $right.Controls.Add($log,0,3)
 $foot=New-Object Windows.Forms.Label
 $foot.Dock='Fill';$foot.Text='IPv4 only. State file presence does not verify routing. DNS/DoH, IPv6 and CDN may differ.'
@@ -245,6 +245,21 @@ function Get-FailureGuidance([string]$details,[int]$nativeErrorCode=0) {
  return '[WORKER_FAILED] No success was confirmed. Retain the journal and use Inspect before reapplying.'
 }
 # Single timer in GUI script scope; no GetNewClosure / separate module state.
+function Get-ActiveWorkerExitWarning {
+ return 'A network operation is still running. Closing this window does not cancel its worker or guarantee rollback. Choose No to keep watching, or Yes to close the window and later use Inspect before another Apply/Restore.'
+}
+$form.Add_FormClosing({
+ param($sender,$args)
+ if(-not $script:running -or $InteractionTest -or $SmokeTest){return}
+ if($args.CloseReason -eq [Windows.Forms.CloseReason]::WindowsShutDown){return}
+ $choice=[Windows.Forms.MessageBox]::Show(
+  (Get-ActiveWorkerExitWarning),'Unfinished network operation',
+  [Windows.Forms.MessageBoxButtons]::YesNo,
+  [Windows.Forms.MessageBoxIcon]::Warning,
+  [Windows.Forms.MessageBoxDefaultButton]::Button2
+ )
+ if($choice -ne [Windows.Forms.DialogResult]::Yes){$args.Cancel=$true}
+})
 $script:actionTimer=New-Object Windows.Forms.Timer
 $script:actionTimer.Interval=150
 $script:actionTimer.Add_Tick({
@@ -441,6 +456,9 @@ exit 0
       if($guidance -notmatch ('^\['+$case.expect+'\]')){
         throw ('Wrong failure guidance: '+$case.expect+' => '+$guidance)
       }
+    }
+    if((Get-ActiveWorkerExitWarning) -notmatch 'does not cancel its worker'){
+      throw 'Closing an active worker lacked a non-destructive warning'
     }
     # Long-running notice never promises a safe automatic rollback or cancellation.
     if((Get-RunningNotice 'apply' 35) -notmatch 'no automatic cancellation'){
