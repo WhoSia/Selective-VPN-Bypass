@@ -113,7 +113,7 @@ function Make-Row($texts) {
 }
 $top=Make-Row @('Apply','Restore')
 $right.Controls.Add($top[0],0,1)
-$other=Make-Row @('Status','DNS','Inspect')
+$other=Make-Row @('Status','DNS','Inspect','Backup')
 $right.Controls.Add($other[0],0,2)
 $log=New-Object Windows.Forms.TextBox
 $log.Multiline=$true;$log.ReadOnly=$true;$log.ScrollBars='Vertical'
@@ -142,6 +142,7 @@ function Update-Items {
   }
  }
  $add.Enabled=(-not $script:configInvalid -and -not $script:running)
+ $other[1][3].Enabled=(-not $script:configInvalid -and -not $script:running)
  $remove.Enabled=($items.SelectedIndex -ge 0 -and -not $script:running -and -not $script:configInvalid)
 }
 function Update-Status {
@@ -163,11 +164,31 @@ function Valid-Target([string]$value) {
  if($v -match '^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'){return $v}
  throw 'Enter a hostname or IPv4 address (not a URL).'
 }
+# Portable backup contains desired entries only, never an elevated recovery
+# journal or Windows network object identifiers.
+function Get-TargetsBackupJson([string]$source) {
+ if(-not (Test-Path -LiteralPath $source)){throw 'No saved exception list to back up.'}
+ $cfg=Get-Content -LiteralPath $source -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+ if($null -eq $cfg.domains -or $cfg.domains -isnot [array]){throw 'Saved exception list is invalid; no backup created.'}
+ $targets=@()
+ foreach($item in $cfg.domains){
+  if($item -isnot [string] -or [string]::IsNullOrWhiteSpace($item)){throw 'Invalid exception entry; no backup created.'}
+  $normalized=Valid-Target $item
+  if($normalized -cne $item){throw 'Unexpected non-normalized entry; no backup created.'}
+  $targets+=,$item
+ }
+ return (ConvertTo-Json -InputObject ([ordered]@{
+  format='SelectiveVPNBypass.TargetsBackup.v1'
+  createdUtc=[DateTime]::UtcNow.ToString('o')
+  domains=@($targets|Sort-Object -Unique)
+ }) -Depth 4)
+}
 function Set-UiBusy([bool]$busy) {
-  foreach($button in @($add,$top[1][0],$top[1][1],$other[1][0],$other[1][1],$other[1][2])){
+  foreach($button in @($add,$top[1][0],$top[1][1],$other[1][0],$other[1][1],$other[1][2],$other[1][3])){
     $button.Enabled = -not $busy
   }
   $add.Enabled=(-not $busy -and -not $script:configInvalid)
+  $other[1][3].Enabled=(-not $busy -and -not $script:configInvalid)
   $remove.Enabled=(-not $busy -and $items.SelectedIndex -ge 0 -and -not $script:configInvalid)
   $entry.Enabled=(-not $busy -and -not $script:configInvalid)
 }
@@ -328,6 +349,40 @@ $top[1][1].Add_Click({Run-Action 'restore'})
 $other[1][0].Add_Click({Run-Action 'status'})
 $other[1][1].Add_Click({if($null -ne $items.SelectedItem){Run-Action 'dns' ([string]$items.SelectedItem)}})
 $other[1][2].Add_Click({Run-Action 'inspect'})
+
+$other[1][3].Add_Click({
+ if($script:running -or $script:configInvalid){return}
+ $created=$null
+ try{
+  $payload=Get-TargetsBackupJson $config
+  $dialog=New-Object Windows.Forms.SaveFileDialog
+  $dialog.Title='Export saved exceptions (not recovery journal)'
+  $dialog.Filter='JSON backup (*.json)|*.json'
+  $dialog.DefaultExt='json'
+  $dialog.FileName='SelectiveVPNBypass-Targets-'+[DateTime]::Now.ToString('yyyyMMdd-HHmmss')+'.json'
+  $dialog.OverwritePrompt=$true
+  try{
+   if($dialog.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK){return}
+   # No silent overwrite even if the dialog was confirmed.
+   $stream=[IO.File]::Open($dialog.FileName,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+   $created=$dialog.FileName
+   $writer=$null
+   try{
+    $writer=[IO.StreamWriter]::new($stream,[Text.UTF8Encoding]::new($false))
+    $writer.Write($payload)
+   }finally{
+    if($null -ne $writer){$writer.Dispose()}else{$stream.Dispose()}
+   }
+  }finally{$dialog.Dispose()}
+  $log.Text='Targets backup created. It contains saved exceptions only; no routes or NRPT recovery state.'
+ }catch{
+  if($created -and (Test-Path -LiteralPath $created)){
+   Remove-Item -LiteralPath $created -Force -ErrorAction SilentlyContinue
+  }
+  $log.Text='Backup not created: '+$_.Exception.Message
+ }
+})
+
 Update-Items;Update-Status
 if ($InteractionTest) {
   # Same dispatcher as GUI; simulated apply/restore never touch network.
@@ -431,6 +486,15 @@ exit 0
     }
     $entry.Text='example.net'; Click-Button $add; Wait-Idle 'add after restore'
     Assert-Items @('example.com','example.wiki','example.net','192.0.2.10') 'post-restore add'
+    $export=Get-TargetsBackupJson $config | ConvertFrom-Json
+    if($export.format -ne 'SelectiveVPNBypass.TargetsBackup.v1' -or
+       @($export.domains).Count -ne 4 -or
+       $null -ne $export.PSObject.Properties['routes'] -or
+       $null -ne $export.PSObject.Properties['ownerId'] -or
+       $null -ne $export.PSObject.Properties['pendingRules']){
+      throw 'Portable backup contains recovery journal data or is malformed.'
+    }
+    if($other[1][3].Text -ne 'Backup'){throw 'Missing safe configuration backup action.'}
     # A malformed saved list must not look like an editable empty list.
     $goodConfig=Get-Content -LiteralPath $config -Raw
     try{
