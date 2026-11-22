@@ -168,6 +168,23 @@ try {
   if(-not $completionRejected){throw 'Unrecognized terminal entry was trusted'}
   Write-Host 'Completion record validation PASS: unrecorded terminal identity rejected.'
 
+  # Migration advice is informational and must never create a privileged
+  # store or grant deletion authority from an old portable journal.
+  $migrationCases=@(
+   @{state=$null;code='NO_LOCAL_JOURNAL'},
+   @{state=$safeJournal;code='BLOCKED_LEGACY_OWNER'},
+   @{state=[pscustomobject]@{version=8;ownerId=[guid]::NewGuid().ToString('D');wifiIndex=9;rules=@();ruleDetails=@();routes=@();pendingRules=@();pendingRoutes=@()};code='EMPTY_JOURNAL_REVIEW'},
+   @{state=[pscustomobject]@{version=7;ownerId=[guid]::NewGuid().ToString('D');wifiIndex=9;rules=@();routes=@($rec);pendingRules=@();pendingRoutes=@()};code='BLOCKED_RECORDED_OBJECTS'},
+   @{state=[pscustomobject]@{version=7;ownerId=[guid]::NewGuid().ToString('D');wifiIndex=9;rules=@();routes=@();pendingRules=@([pscustomobject]@{namespace='example.org';servers=@('192.0.2.53')});pendingRoutes=@()};code='BLOCKED_PENDING'},
+   @{state=[pscustomobject]@{version=999;wifiIndex=9;rules=@();routes=@()};code='BLOCKED_INVALID_JOURNAL'}
+  )
+  foreach($case in $migrationCases){
+   $gate=Get-JournalMigrationGate $case.state
+   if($gate.Code -cne $case.code){throw ('Migration gate mismatch: expected '+$case.code+' got '+$gate.Code)}
+  }
+  Write-Host 'Privileged journal migration gate PASS: absent, legacy, pending, recorded, malformed, empty-review; no writes.'
+
+
 
 
   # A separate PowerShell process must not acquire the same named mutex.
