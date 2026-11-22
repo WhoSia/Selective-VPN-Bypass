@@ -225,10 +225,15 @@ function Get-PrivilegedStoreHealth([string]$commonDataRoot='') {
    return [pscustomobject]@{Code='UNKNOWN';Reason='Windows common application data directory could not be located.'}
   }
   $folder=Join-Path $commonDataRoot 'SelectiveVPNBypass'
-  if(-not (Test-Path -LiteralPath $folder)){
+  # Access denied, unreadable metadata and a missing path are different.
+  # Test-Path may report false for permission errors, so inspect explicitly.
+  try{$item=Get-Item -LiteralPath $folder -Force -ErrorAction Stop}
+  catch [System.Management.Automation.ItemNotFoundException]{
    return [pscustomobject]@{Code='NOT_CONFIGURED';Reason='No privileged journal store installed. This version still uses a portable, unauthenticated journal.'}
   }
-  $item=Get-Item -LiteralPath $folder -Force -ErrorAction Stop
+  catch [System.IO.DirectoryNotFoundException]{
+   return [pscustomobject]@{Code='UNKNOWN';Reason='A parent component of the privileged-store path is unavailable; cannot establish that the store is absent.'}
+  }
   if(-not $item.PSIsContainer){
    return [pscustomobject]@{Code='UNSAFE_PATH';Reason='The expected journal directory path is occupied by a non-directory object.'}
   }
