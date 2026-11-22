@@ -393,8 +393,8 @@ function Get-RestorePreflight($st) {
  foreach($name in $known){
   if($doneRules -ccontains [string]$name){continue}
   $r=@(Get-DnsClientNrptRule -ErrorAction Stop | Where-Object { [string]$_.Name -ceq [string]$name })
-  if($null -eq $r){continue}
-  if(@($r).Count -ne 1 -or [string]$r.Comment -cne $owner){
+  if($r.Count -eq 0){continue}
+  if($r.Count -ne 1 -or [string]$r.Comment -cne $owner){
    throw "Preflight: recorded NRPT identity is ambiguous or mismatched."
   }
   if($ruleNames -notcontains ([string]$r.Name)){$ruleNames+=([string]$r.Name)}
