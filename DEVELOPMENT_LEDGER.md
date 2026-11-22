@@ -483,6 +483,21 @@
 - **운영:** main에서 직접 변경 및 WhoSia Author/Committer 사용, GitHub Actions[bot] 소스 커밋 없음. 이번에 사용자 PC의 실제 네트워크 정책을 변경하지 않음. 브랜치 추가 없음.
 - **후속 우선순위 판단:** P0—관리자 권위 저장소 설계·격리 VM ACL 수락 테스트 및 구형 저널 비파괴 마이그레이션; P1—GUI 완료 타이밍의 상호작용·로그·프로세스 실기 추적, 다중 관리자 계정의 UAC, 중간 종료 뒤 OS/저널 검증; P2—정보 누출 최소화된 진단 보고서. 새 우회 기능 추가보다는 검증이 우선.
 
+## 2026-11-23 — Redacted Support Report, ACL Read-Only Rights Fix & Privileged Store Uncertainty [MAIN / CI PASS]
+
+- **개발 방침:** 이전 우선순위 P0 관리자 복구 저널의 신뢰 경계를 계속 release blocker로 유지하되, 실제 권위 저장소 이관 전 **읽기 전용 장애 진단의 정보 노출과 ACL 오진 위험**을 먼저 낮춤. 새로운 우회 모드나 Windows 경로·DNS 변경 범위 확대 없음.
+- [`a343d48`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/a343d486518f5278d884e65f710445c04982a8b8): 저널이 없을 때 Inspector가 `Rules/Routes/Missing/Conflicts/Pending/Completed`를 모두 0으로 출력하도록 정규화해 사용자·자동 진단의 모호성 제거.
+- [`8eaca6b`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/8eaca6b598745acdc46eb6f66e5f0072a1c34815): `Get-RedactedDiagnosticSummary` 추가. `Inspect`가 `SVB-DIAG-v1` 정형 JSON 요약 출력. 정해진 코드·숫자만 내보내며 설정 도메인, IP, 사용자 이름, 경로, NRPT 고유 ID, 복구 저널 바이트는 포함하지 않음. `VerifiedTraffic=false` 명시해 실제 브라우저/앱 경로에 대한 검증으로 오인하지 않도록 함.
+- [`517666d`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/517666d15f4ca35fbb071794643b548d94bff656), [`13d7523`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/13d7523472c23fca25836e74eb91dd08dda54ca4): 개인정보 유사 문자열을 포함하는 모의 Reason을 넣고 redacted JSON에서 정보가 누출되지 않는지 확인, 비정상 상태코드/수량 sanitize, 일반 CLI `inspect` 경로에서 단 하나의 비식별 요약이 출력되고 없는 저널을 생성하지 않는지 검증.
+- **ACL 진단 오진:** [`2c9d675`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/2c9d675d99ae818d4735c6ef22af6ccfb525c61a)에서 기존 쓰기 가능 권한 식별에 `FullControl`이 포함돼 **READ 비트도 쓰기 위험으로 분류할 수 있음**을 발견하고 권한 판정을 함수로 분리. [`1a83c9d`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/1a83c9d588276e0217fd82820060b4d38a05f2d8)에서 `Modify`도 복합 읽기 비트를 포함하므로 마스크에서 제외하여 `Write/Delete/DeleteSubdirectoriesAndFiles/ChangePermissions/TakeOwnership` 등 쓰기·삭제·권한 변경 비트만 검사. [`566793f`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/566793facb6e660d3c1e269f5c7a6a47b1cb796f)에서 ReadAndExecute는 거짓, Write/Modify/ChangePermissions는 참이어야 함을 회귀 테스트.
+- **저장소 상태 불확실성:** [`610802e`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/610802e7840fc08402dca376acea7cfe1b246a71)에서 `Test-Path`의 단순 false가 access denied를 저장소 없음으로 오판할 수 있어 `Get-Item -ErrorAction Stop` 기반으로 분기. 경로 부재는 `NOT_CONFIGURED`, 메타데이터 접근 실패는 `UNKNOWN`. [`4737d91`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/4737d91e12072810e52f88564fba29fb932b008c)에서 모의 UnauthorizedAccessException을 주입해 `UNKNOWN` 유지 검증.
+- **UAC 장애 안내:** [`606f31a`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/606f31ae0a541d4ba23d23798fe7c932bb201e15)에서 `NO_RESULT_LOG`에 다른 관리자 계정이 별도 TEMP를 사용할 가능성을 명시하되, 원인 확정이나 작업 성공으로 오인하지 않도록 GUI 안내 개선.
+- **독립적 자기비판:** [`90ff51e`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/90ff51e991bffe2612f44da979ecbe7283b3e48f)에 [MAINTAINER_ADVERSARIAL_REVIEW_2026-11-23.md](MAINTAINER_ADVERSARIAL_REVIEW_2026-11-23.md) 보강. 비식별 요약은 전체 로그 공유를 안전하게 만들지 않으며, ACL 상태코드는 파일 신원·실효 권한·사용자 수정 가능 복구 저널의 진위 검증이 아니라는 한계를 기록.
+- **CI 수락:** [Windows Portable `45057250008`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45057250008), 마지막 실행 코드 `4737d91`: **SUCCESS**. 원본 로그 `Redacted support report PASS`, `ACL rights predicate PASS`, `Privileged store read-only diagnostics PASS` 확인. GUI interaction trial 1·2·3 전부 PASS, Go tests, Windows x64 compile, Portable ZIP upload PASS. Artifact `SelectiveVPNBypass-Portable-Windows-x64`, ID `14768022001`, ZIP SHA-256 `8089EF14EFD396B86053D723B2B3F7E6694161915EFFD033008D421B6F620C69`. [격리 Windows NRPT/라우트 `45057249979`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45057249979) **SUCCESS**. 후속 README/원장/감사 문서만 변경하며 배포 코드 수정 없음.
+- **남은 위험:** 사용자 쓰기 가능 저널에 대한 관리자 Restore의 신뢰, 동일 IPv4 라우트의 소유권 불확실, UAC 다른 계정에서 실제 경로·로그 전송, OS 객체 삭제와 완료 기록 사이 크래시, GUI 실제 상호작용 기반 간헐 오류는 해결되지 않음. `Get-PrivilegedStoreHealth`는 일부 ACL 위험 신호만 탐지하며 실효 권한/전체 reparse 경로/TOCTOU/하드링크/서명 검증은 수행하지 않음. 사용자 PC나 관리형 네트워크에 접근·변경하지 않음.
+- **다음 게이트:** P0—격리 Windows VM에서 ACL과 고정 경로에 기반한 권위 저널 프로토타입을 별도 수락, 구버전 무단 이관 금지. P1—서로 다른 관리자 계정 UAC, 강제 종료 및 교차 세션 접근 검증. P2—비식별 요약만 복사하는 사용자 UX, 저장 데이터 최소화. 과도한 새 우회 기능 확장 지양.
+- **운영:** `main`에 WhoSia 직접 작성·커밋, GitHub Actions[bot] source commit 없음, 새 브랜치 만들지 않음.
+
 ## 이후 기록 템플릿
 
 ```markdown
