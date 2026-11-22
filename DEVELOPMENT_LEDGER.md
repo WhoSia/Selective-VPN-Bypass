@@ -424,6 +424,18 @@
 - **잔여 위험:** 완료 기록은 사용자 쓰기 가능 JSON 내에 저장되므로 진본성을 증명하지 못함. OS 객체 제거 직후 완료 상태 영속화 직전 중단 시, 외부에서 동일 식별 객체를 재생성하면 여전히 재삭제 위험이 있음. IPv4 라우트의 OS 수준 생성자 고유 ID 부재, 세션 간 동시성, 전원 차단에서의 flush 내구성, 실제 SoftEther 반복 테스트는 보장되지 않음.
 - **운영:** GitHub `main`에서 WhoSia 명의의 소스·테스트·설계 문서 커밋, GitHub Actions[bot] 소스 커밋 없음. README 최신 검증 빌드 링크 반영.
 
+## 2026-11-22 — Read-only Privileged Store Diagnostics & Absent NRPT Recovery [COMMITTED / CI PASS]
+
+- **범위 선정:** `SECURITY_BOUNDARY_PLAN_2026-11-22.md`의 관리자 저널 분리 설계를 실제로 이관하기 전, 비파괴 경로·ACL 진단을 먼저 검증하고 과거 Restore 실행경로의 빈 NRPT inventory 오류를 교정. 새로운 트래픽 우회 기능이나 방화벽·DNS 정책 변경 범위 확대 없음.
+- **실제 소스에서 확인한 복구 결함:** `Get-RestorePreflight`의 `$r=@(Get-DnsClientNrptRule ...)` 결과가 빈 배열일 때 `$null -eq $r`가 참이라고 가정해, 삭제된 NRPT rule을 `ambiguous or mismatched`로 판단할 수 있었음. [`65b559d`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/65b559d328f914c2e1e5e2230873e95c7acf009d)에서 `$r.Count -eq 0`를 정확한 부재 판정으로 교체. [`29c099d`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/29c099dbd7576f0e7294bc1b06b8a86785ee4472)에서 이미 사라진 rule에 대해 삭제 없이 Restore 수렴·저널 정리하는 PowerShell 회귀 테스트 추가.
+- **읽기 전용 관리자 저장소 진단:** [`5ef5eea`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/5ef5eea596c85dc7d23ce5382bbcc7a276990f78)에서 `Get-PrivilegedStoreHealth` 추가. Windows CommonApplicationData의 미래 `SelectiveVPNBypass` 디렉터리를 찾고 `NOT_CONFIGURED` / `UNSAFE_PATH` / `REPARSE_POINT` / `BROAD_WRITE_ACE` / `ACL_UNVERIFIED` / `UNKNOWN` 구분. Windows ACL의 일부 ACE는 위험 지표일 뿐 유효 접근 권한·진본성 검증이 아님. 작업 대상 디렉터리 생성·ACL 수정·OS 라우팅 변경·레거시 이관 없음.
+- [`b5b4265`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/b5b42657c761da58f3dff8d74aea2fa644001f44)에서 가짜 CommonData 경로에 대한 미설치, 디렉터리 대신 파일이 존재하는 경우, 디렉터리의 ACL 관측과 **검사 전후 파일 바이트·디렉터리 내용 불변성** 테스트 추가.
+- [`c96ca6d`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/c96ca6dd4407458c84091a9ac190161cc8d23cf2)에서 기존 GUI의 Inspect에 연결된 출력 위치를 이동해, 네트워크 inventory 조회가 실패한 경우에도 권한·저장소 진단은 표시하도록 수정. 별도의 버튼이나 UAC 요구 없이 기존 UX 재사용.
+- **Windows CI 근거:** [Windows Portable Run `45021001339`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45021001339), head SHA `c96ca6dd4407458c84091a9ac190161cc8d23cf2`, 전체 SUCCESS. 원본 로그에 `Missing NRPT convergence PASS: empty inventory treated as absent.`, `Privileged store read-only diagnostics PASS: absent store, invalid object, ACL observation, zero writes.`, 기존 저널·NRPT·라우트·Mutex·GUI 반복·Go 단위 테스트 PASS. Windows x64 EXE+ZIP 업로드, artifact `SelectiveVPNBypass-Portable-Windows-x64` ID `14754305433`, ZIP SHA-256 `297a5d8f0e421282af21f24a84addca233fcd6881e2ccbdac9e16451404fc8c0`. [격리 Windows 네트워크 복구 `45021001380`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45021001380) SUCCESS.
+- **Docs:** [README.md](README.md) 새 read-only 보안 진단의 상태 정의·비보장과 최신 빌드 링크 반영. 소스 변경은 기존 `src/Core.ps1` 및 `tests/test-core.ps1`에만 한정.
+- **추가 확인이 필요한 핵심 위험:** 현 설계의 portable 저널은 여전히 사용자 쓰기 가능 폴더에서 읽힐 수 있음. 미래 ProgramData 위치를 검사만 했으며 ACL 권한 분리, 서명된 실행 파일, 마이그레이션 로직, 세션 간 OS 전역 잠금은 미구현. `Get-Acl` 결과는 효과적인 권한 평가나 경로 전체의 reparse 검증을 대신하지 못함. 온전한 관리자 저널 도입 전에 설계 게이트의 B-01~B-10 검증 필요.
+- **운영:** GitHub `main`에 WhoSia 작성자·커미터로 커밋; GitHub Actions[bot] 소스 커밋 없음. 사용자 PC 또는 학교/관리 네트워크에 접근하거나 설정을 바꾸지 않았음.
+
 ## 이후 기록 템플릿
 
 ```markdown
