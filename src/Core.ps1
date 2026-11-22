@@ -26,6 +26,19 @@ function Enter-ConfigLock {
   return $m
  }catch{$m.Dispose();throw}
 }
+# Network settings are system-wide; a folder-scoped lock alone does not
+# serialize two portable folders. Local namespace covers the current session.
+# This lock does not prove ownership or protect another Windows session.
+function Enter-NetworkLock {
+ $m=[System.Threading.Mutex]::new($false,'Local\SelectiveVPNBypass-NetworkWriter')
+ try {
+  $acquired=$false
+  try{$acquired=$m.WaitOne(5000)}
+  catch [Threading.AbandonedMutexException]{$acquired=$true}
+  if(-not $acquired){throw 'Another network operation is running in this Windows session. Inspect before retrying.'}
+  return $m
+ }catch{$m.Dispose();throw}
+}
 function Test-ManagedRouteMatch($route,$record,[int]$ifIndex){
  return (
   [string]$route.DestinationPrefix -eq [string]$record.prefix -and
@@ -289,6 +302,9 @@ function Restore-Own {
    if([int]$a.ifIndex -ne [int]$st.wifiIndex){throw 'Interface index changed'}
    $found=@(Get-NetRoute -InterfaceIndex ([int]$st.wifiIndex) -AddressFamily IPv4 -ErrorAction SilentlyContinue|
     Where-Object { Test-ManagedRouteMatch $_ $record ([int]$st.wifiIndex) })
+   if($found.Count -gt 1){
+    throw 'Multiple identical route candidates exist; ownership is ambiguous. No route removed.'
+   }
    foreach($r in $found){Remove-NetRoute -InputObject $r -Confirm:$false -ErrorAction Stop}
   }catch{$errors+="Route $($record.prefix) : $_"}
  }
@@ -299,9 +315,11 @@ function Restore-Own {
 # Read-only operations can proceed; all writes (including Apply/Restore) use
 # one cross-process writer lock. No implicit recovery if state is unfamiliar.
 $script:configMutex=$null
-if($Action -in @('add','remove','apply','restore')){$script:configMutex=Enter-ConfigLock}
+$script:networkMutex=$null
 try {
-switch($Action){
+ if($Action -in @('add','remove','apply','restore')){$script:configMutex=Enter-ConfigLock}
+ if($Action -in @('apply','restore')){$script:networkMutex=Enter-NetworkLock}
+ switch($Action){
  'list'{Targets|ForEach-Object{Write-Output $_};break}
  'add'{
   $d=Normalize-Target $Domain
@@ -491,6 +509,9 @@ switch($Action){
  }
 }
 } finally {
+ if($null -ne $script:networkMutex){
+  try{$script:networkMutex.ReleaseMutex()}finally{$script:networkMutex.Dispose()}
+ }
  if($null -ne $script:configMutex){
   try{$script:configMutex.ReleaseMutex()}finally{$script:configMutex.Dispose()}
  }
