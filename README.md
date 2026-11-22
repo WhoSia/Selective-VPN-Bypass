@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-22 KST):** [Windows portable: cross-folder operation lock and journal validation](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967787678) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · ZIP SHA-256 `18970d378d493ec2538ad3b6a7d603b252cf8c4e772ca987e7eeefd17e2704c2`. Windows PowerShell syntax, cross-process and cross-folder mutex tests, ambiguous-route Restore, journal structure/legacy tests, WinForms regressions, Go x64 build and upload PASS. [Isolated Windows network recovery](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967787722) PASS. This does not guarantee recovery across sessions, malicious journal modification, or live VPN environments.
+**Latest verified CI package (2026-11-22 KST):** [Windows portable: Restore preflight and observed postconditions](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44970319662) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · inside ZIP SHA-256 `0b221170f754422dfb986dfdbc5ac9f0367d3179bda1b5c86f30a81f010c9fed`. Windows PowerShell all-object preflight and postcondition tests, existing NRPT/route/GUI regressions, Go x64 build and upload PASS. [Isolated Windows NRPT/route integration](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44970319639) PASS. Not an atomic network transaction or guarantee for live VPN traffic.
 
 ## Features
 
@@ -68,6 +68,14 @@ Restore now refuses to remove a route when more than one identical candidate is 
 Before Restore, the application structurally validates the recovery journal: supported schema version, interface index, IPv4 host prefixes, gateway IPs and pending DNS records. Legacy records without newer optional fields remain readable. Inspect reports `UNKNOWN` for structurally invalid journals; do not manually edit or delete the journal without a verified recovery plan.
 
 **Important:** Structural validation and owner comments are not cryptographic integrity or authorization checks, because state files remain writable by the local user. A stronger privilege-separated trust model and inter-session isolation remain future work.
+
+## Restore preflight and observed postconditions
+
+Before deleting any recorded Windows objects, Restore now performs a **read-only, full-journal preflight**. It checks recorded NRPT identities and pending rule intents, then checks all recorded IPv4 routes for ambiguity and changed interface identity. If this preflight encounters a conflict, **no deletion begins**. Missing objects are treated as already absent from the observed snapshot, not as an instruction to remove a substitute.
+
+During deletion, each candidate is queried again before its corresponding operation. After the deletion attempts, the same reconciliation checks run again; a journal is cleared only when no recorded objects remain observable and no errors occurred. If any error occurs, the journal stays for inspection and a later recovery attempt.
+
+This **does not provide atomicity**: changes can still occur between checks, an operation can fail after earlier deletions, and a crash can leave an incomplete journal. The current implementation intentionally blocks all deletions when an ambiguous candidate is found during the first preflight; an alternative per-item cleanup policy needs separate design and tests. State files remain user-writable, and structural validation does not authenticate their origin.
 
 ## Verification and development history
 
