@@ -28,6 +28,28 @@ func TestWorkerArgumentBoundary(t *testing.T) {
  }
 }
 
+func TestWorkerLogExclusive(t *testing.T) {
+ dir:=t.TempDir()
+ path:=filepath.Join(dir,"svb-test.log")
+ original:=[]byte("keep existing log contents")
+ if err:=os.WriteFile(path,original,0600);err!=nil{t.Fatal(err)}
+ if file,err:=openNewWorkerLog(path);err==nil{
+  _=file.Close()
+  t.Fatal("helper was allowed to truncate an existing log")
+ }
+ after,err:=os.ReadFile(path)
+ if err!=nil{t.Fatal(err)}
+ if string(after)!=string(original){t.Fatal("existing worker log was changed")}
+ fresh:=filepath.Join(dir,"svb-new.log")
+ file,err:=openNewWorkerLog(fresh)
+ if err!=nil{t.Fatal(err)}
+ if _,err=file.WriteString("only new output");err!=nil{t.Fatal(err)}
+ if err=file.Close();err!=nil{t.Fatal(err)}
+ if raw,err:=os.ReadFile(fresh);err!=nil || string(raw)!="only new output"{
+  t.Fatalf("exclusive log output missing or damaged: %v",err)
+ }
+}
+
 func TestPowerShellSingleQuoteEscaping(t *testing.T){
  got:=psLiteral("a'b")
  if got!="'a''b'"{t.Fatalf("unexpected quote encoding: %s",got)}
