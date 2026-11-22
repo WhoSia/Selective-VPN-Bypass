@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-22 KST):** [Windows portable: NRPT journal-bound ownership protection](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44933145046) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · inside ZIP SHA-256 `be94111153e46774b484ef1e080d5d0d95c223ff4c6fed3e82926069ca5d653f`. PowerShell tests, per-operation ownership collision tests, GUI regression, Windows x64 build and ZIP upload PASS. [Isolated Windows v6/v7 NRPT recovery integration](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44933145024) PASS. Not a security certification or live VPN guarantee.
+**Latest verified CI package (2026-11-22 KST):** [Windows portable: cross-folder operation lock and journal validation](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967787678) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · ZIP SHA-256 `18970d378d493ec2538ad3b6a7d603b252cf8c4e772ca987e7eeefd17e2704c2`. Windows PowerShell syntax, cross-process and cross-folder mutex tests, ambiguous-route Restore, journal structure/legacy tests, WinForms regressions, Go x64 build and upload PASS. [Isolated Windows network recovery](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967787722) PASS. This does not guarantee recovery across sessions, malicious journal modification, or live VPN environments.
 
 ## Features
 
@@ -58,6 +58,16 @@ New `Apply` operations create a **version 7 journal** with a random operation id
 Older v6 (and earlier) journals continue to use the legacy Comment for Restore; their identity is less specific. Newly launched Apply operations **never automatically adopt a policy merely because it has the old owner tag**, even when DNS servers and namespace match. If an old orphaned policy remains, use Inspect and review it carefully before making system changes. The app does not delete foreign policies as part of this migration.
 
 An operation UUID is an **accidental-collision discriminator, not a cryptographic identity**. Other applications with administrator access can imitate this Comment, and an IPv4 route is not tagged with the NRPT owner identity. Different portable folders remain independent and may still conflict over routes. This release strengthens NRPT recovery boundaries but does not promise multi-instance isolation for all Windows network objects.
+
+## Cross-folder coordination and recovery journal validation
+
+Apply/Restore now take two locks: a configuration-folder writer lock and a `Local\\SelectiveVPNBypass-NetworkWriter` network-operation lock shared across **portable folders in the same Windows session**. This prevents simultaneous network mutations by two app copies in that session, but it does not block other user sessions or unrelated network software.
+
+Restore now refuses to remove a route when more than one identical candidate is returned for the journaled interface, prefix, gateway and route metric. This is a fail-closed safety check, not proof of ownership when a single identical route may have been created by another app.
+
+Before Restore, the application structurally validates the recovery journal: supported schema version, interface index, IPv4 host prefixes, gateway IPs and pending DNS records. Legacy records without newer optional fields remain readable. Inspect reports `UNKNOWN` for structurally invalid journals; do not manually edit or delete the journal without a verified recovery plan.
+
+**Important:** Structural validation and owner comments are not cryptographic integrity or authorization checks, because state files remain writable by the local user. A stronger privilege-separated trust model and inter-session isolation remain future work.
 
 ## Verification and development history
 
