@@ -616,6 +616,36 @@ try{
   if($unreadable.Code -ne 'UNKNOWN'){throw 'Malformed schema must be unknown'}
   Write-Host 'Recovery Inspector PASS: matched, no journal, empty journal, pending, missing, conflict, invalid schema.'
 
+  $noneCounts=Inspect-JournalSnapshot $null @() @()
+  foreach($name in @('Rules','Routes','Missing','Conflicts','Pending','Completed')){
+   if($null -eq $noneCounts.PSObject.Properties[$name] -or $noneCounts.$name -ne 0){
+    throw ('Absent journal omits a zero-valued diagnostic counter: '+$name)
+   }
+  }
+  $sensitiveReport=[pscustomobject]@{
+   Code='CONFLICT';Reason='Private target secret.example.org with 198.51.100.25 and C:\Users\private';
+   Rules=2;Routes=3;Missing=1;Conflicts=1;Pending=0;Completed=1
+  }
+  $redacted=Get-RedactedDiagnosticSummary $sensitiveReport 'OK' 'BLOCKED_RECORDED_OBJECTS' 'ACL_UNVERIFIED' 2
+  $redactedJson=$redacted|ConvertTo-Json -Compress
+  foreach($private in @('secret.example.org','198.51.100.25','C:\Users\private')){
+   if($redactedJson.Contains($private)){throw 'Support report leaked identifying network or filesystem data'}
+  }
+  if($redacted.Format -ne 'SVB-DIAG-v1' -or $redacted.Conflicts -ne 1 -or
+     $redacted.VerifiedTraffic -ne $false -or $redacted.Unattributed -ne 2){
+   throw 'Redacted diagnostic report omitted required safe status fields.'
+  }
+  $unknown=Get-RedactedDiagnosticSummary ([pscustomobject]@{
+   Code='my-user-secret';Rules='abc';Routes=-9;Missing='12';Conflicts=0;Pending=0;Completed=0
+  }) 'secret-value' 'secret-value' 'secret-value' -5
+  if($unknown.Journal -ne 'UNKNOWN' -or $unknown.SavedList -ne 'INVALID' -or
+     $unknown.Migration -ne 'BLOCKED_UNREADABLE' -or $unknown.Store -ne 'UNKNOWN' -or
+     $unknown.Unattributed -ne 0 -or $unknown.Routes -ne 0){
+   throw 'Unrecognized diagnostic fields were not sanitized.'
+  }
+  Write-Host 'Redacted support report PASS: fixed fields, unknown-code sanitization, no domain/IP/path exposure.'
+
+
   # Exercise public read-only action, including the normal CLI dispatch path.
   if(Test-Path -LiteralPath $StatePath){throw 'Inspector CLI test requires absent journal'}
   $output=@(& $core -Action inspect -ConfigDir $testDir)
