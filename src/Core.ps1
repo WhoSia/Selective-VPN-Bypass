@@ -275,7 +275,7 @@ function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
    return [pscustomobject]@{Code='UNKNOWN';Reason='Recovery journal failed structural validation; preserve original bytes.';Rules=0;Routes=0;Missing=0;Conflicts=0;Pending=0}
   }
  }
- if($null -eq $journal){return [pscustomobject]@{Code='NO_JOURNAL';Reason='No local recovery journal. Absence of OS policies is not verified.';Rules=0;Routes=0}}
+ if($null -eq $journal){return [pscustomobject]@{Code='NO_JOURNAL';Reason='No local recovery journal. Absence of OS policies is not verified.';Rules=0;Routes=0;Missing=0;Conflicts=0;Pending=0;Completed=0}}
  $rules=@($journal.rules|Where-Object{$_})
  $pending=@(Pending-NrptRecords $journal)
  $routes=@(Route-Records $journal)
