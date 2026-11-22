@@ -286,7 +286,7 @@ $script:actionTimer.Add_Tick({
       }else{
         $log.Text="FAILED: $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+(Get-FailureGuidance $output)+[Environment]::NewLine+$output
       }
-    }else{$log.Text="FAILED: No result log for $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+"[NO_RESULT_LOG] The helper exited without a readable result. It may have failed before creating its log; check the Windows TEMP directory and run Inspect before retrying."}
+    }else{$log.Text="FAILED: No result log for $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+"[NO_RESULT_LOG] The helper exited without a readable result. A different administrator account can use a different TEMP directory; do not assume a network change succeeded. Run Inspect before retrying."}
   }catch{
     $log.Text="Worker completion error: $($_.Exception.Message)"
   }finally{
@@ -530,6 +530,7 @@ exit 0
       throw ('No-log worker incorrectly reported success: '+$log.Text)
     }
     if($script:running){throw 'No-log worker left the GUI in busy state'}
+    if($log.Text -notmatch 'administrator account'){throw 'No-log diagnostic does not mention cross-account UAC uncertainty'}
 
     if(-not (Run-Action 'apply' 'emptylog')){throw 'Empty-log mock worker failed to launch'}
     Wait-Idle 'worker with empty result log'
