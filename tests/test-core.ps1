@@ -358,6 +358,10 @@ try{
   try{Restore-Own|Out-Null}catch{$partialFailure=$true}
   if(-not $partialFailure -or -not (Test-Path $StatePath)){throw 'Partial restore did not retain its journal'}
   $reloaded=Get-Content $StatePath -Raw|ConvertFrom-Json
+  $partialReport=Inspect-JournalSnapshot $reloaded $script:mockNrpt @()
+  if($partialReport.Code -ne 'RESTORE_PARTIAL' -or $partialReport.Completed -ne 1){
+   throw 'Inspector mislabels a confirmed completed deletion as missing or fully restored'
+  }
   if(@($reloaded.restoreDoneRules) -cnotcontains 'done-once' -or
      @($reloaded.restoreDoneRules) -ccontains 'fail-second'){
    throw 'Terminal state was not durably recorded after the first successful deletion'
