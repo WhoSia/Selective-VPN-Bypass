@@ -63,6 +63,7 @@ function Save-Json($path,$value){
  $suffix=[guid]::NewGuid().ToString('N')
  $temporary=$path+'.'+$suffix+'.tmp'
  $backup=$path+'.'+$suffix+'.bak'
+ $committed=$false
  try{
   $value|ConvertTo-Json -Depth 12|Set-Content -LiteralPath $temporary -Encoding UTF8
   if(Test-Path -LiteralPath $path){
@@ -70,9 +71,14 @@ function Save-Json($path,$value){
   }else{
    [IO.File]::Move($temporary,$path)
   }
+  $committed=$true
  }finally{
   Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+  if($committed){
+   Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+  }elseif(Test-Path -LiteralPath $backup){
+   Write-Warning 'Atomic JSON replacement did not finish; original backup is retained for inspection.'
+  }
  }
 }
 function Normalize-Target([string]$s){
