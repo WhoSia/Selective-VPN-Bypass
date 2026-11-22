@@ -34,11 +34,19 @@ jobs:
       - name: Repeated GUI actions smoke test (offline)
         shell: pwsh
         run: |
-          $isolated = Join-Path $env:RUNNER_TEMP ('svb-gui-actions-' + [guid]::NewGuid().ToString('N'))
-          New-Item -ItemType Directory -Force -Path $isolated | Out-Null
-          & powershell.exe -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File .\src\Gui.ps1 -RuntimeDir .\src -DataDir $isolated -InteractionTest
-          if ($LASTEXITCODE -ne 0) { throw "Repeated GUI actions failed: $LASTEXITCODE" }
-          Remove-Item -LiteralPath $isolated -Recurse -Force
+          # Three isolated invocations expose intermittent worker/timer races.
+          # Never re-use data directories so failures cannot inherit prior state.
+          foreach ($trial in 1..3) {
+            $isolated = Join-Path $env:RUNNER_TEMP ('svb-gui-actions-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Force -Path $isolated | Out-Null
+            try {
+              Write-Host "GUI interaction trial $trial of 3"
+              & powershell.exe -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File .\src\Gui.ps1 -RuntimeDir .\src -DataDir $isolated -InteractionTest
+              if ($LASTEXITCODE -ne 0) { throw "GUI trial $trial failed: $LASTEXITCODE" }
+            } finally {
+              Remove-Item -LiteralPath $isolated -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
       - name: Compile Windows x64
         shell: pwsh
         run: |
