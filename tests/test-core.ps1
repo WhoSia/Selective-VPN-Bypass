@@ -200,7 +200,8 @@ try{
   function Get-NetAdapter {
     [CmdletBinding()]
     param([string]$Name)
-    return [pscustomobject]@{ifIndex=9;Name=$Name}
+    $idx=if($script:mockIfIndex){[int]$script:mockIfIndex}else{9}
+    return [pscustomobject]@{ifIndex=$idx;Name=$Name}
   }
   function Get-NetRoute {
     [CmdletBinding()]
@@ -371,6 +372,33 @@ try{
    throw 'Retry deleted a terminally completed identity or failed to converge'
   }
   Write-Host 'Restore completion journal PASS: first success persists, later failure retains state, retry skips replacement.'
+
+  # An ActiveStore route can disappear after reboot even if the adapter index
+  # changes. Its absence is not a reason to keep a journal forever.
+  $script:routeGone=$true
+  $script:mockIfIndex=15
+  $script:removedRoutes=@()
+  $script:mockNrpt=@()
+  Save-Json $StatePath ([ordered]@{
+   version=6;wifiIndex=9;routes=@($rec);pendingRoutes=@();rules=@();pendingRules=@()
+  })
+  Restore-Own|Out-Null
+  if((Test-Path $StatePath) -or $script:removedRoutes.Count -ne 0){
+   throw 'Reboot-style absent ActiveStore route did not converge without deletion.'
+  }
+  $script:routeGone=$false
+  Save-Json $StatePath ([ordered]@{
+   version=6;wifiIndex=9;routes=@($rec);pendingRoutes=@();rules=@();pendingRules=@()
+  })
+  $indexRejected=$false
+  try{Restore-Own|Out-Null}catch{$indexRejected=$true}
+  if(-not $indexRejected -or $script:removedRoutes.Count -ne 0 -or -not (Test-Path $StatePath)){
+   throw 'Changed adapter with still-present recorded route was not blocked.'
+  }
+  Remove-Item -LiteralPath $StatePath -Force
+  $script:mockIfIndex=9
+  Write-Host 'Reboot convergence PASS: absent route completes; still-present route with changed interface blocks.'
+
 
 
 
