@@ -38,18 +38,23 @@ func validateWorkerArguments(executable,action,configDir,logPath string) error {
   return errors.New("config folder must match the portable executable folder")
  }
  if !workerLogName.MatchString(filepath.Base(logPath)) {return errors.New("invalid worker log name")}
+ // The privileged helper may create only a fresh log directly in its
+ // configured temporary directory; a caller must not supply a protected path.
+ if !strings.EqualFold(filepath.Clean(filepath.Dir(logPath)),filepath.Clean(os.TempDir())) {
+  return errors.New("worker log must reside directly in the process temporary directory")
+ }
  return nil
 }
 
-func embeddedCoreWrapper(core []byte,action,dir,logPath string) string {
+func embeddedCoreWrapper(core []byte,action,dir string) string {
  encoded:=base64.StdEncoding.EncodeToString(core)
  return "$ErrorActionPreference='Stop'\n"+
   "$core=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+encoded+"'))\n"+
   "try {\n"+
-  " & ([ScriptBlock]::Create($core)) -Action "+psLiteral(action)+" -ConfigDir "+psLiteral(dir)+" *>&1 | Out-String -Width 200 | Set-Content -LiteralPath "+psLiteral(logPath)+" -Encoding UTF8\n"+
+  " & ([ScriptBlock]::Create($core)) -Action "+psLiteral(action)+" -ConfigDir "+psLiteral(dir)+" *>&1 | Out-String -Width 200 | Write-Output\n"+
   " exit 0\n"+
   "} catch {\n"+
-  " $_ | Out-String -Width 200 | Add-Content -LiteralPath "+psLiteral(logPath)+" -Encoding UTF8\n"+
+  " $_ | Out-String -Width 200 | Write-Output\n"+
   " exit 1\n"+
   "}\n"
 }
@@ -71,13 +76,17 @@ func runEmbeddedWorker(args []string) error {
  // A short trusted bootstrap reads the full embedded script from stdin; no
  // high-privilege script is loaded from a writable file or placed in argv.
  cmd:=exec.Command(powershell,"-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-EncodedCommand",utf16EncodedCommand(workerBootstrap))
- cmd.Stdin=strings.NewReader(embeddedCoreWrapper(core,*action,*dir,*logPath))
- output,err:=cmd.CombinedOutput()
- if err!=nil {
-  // The PowerShell wrapper normally writes structured errors to the log.
-  if _,statErr:=os.Stat(*logPath);statErr!=nil {
-   _=os.WriteFile(*logPath,[]byte(fmt.Sprintf("Privileged worker execution failed: %v\n%s",err,output)),0600)
-  }
+ // O_EXCL refuses existing files, including pre-planted links. Keep the
+ // handle open across child execution so privileged PowerShell never resolves
+ // or writes the caller-controlled pathname itself.
+ log,err:=os.OpenFile(*logPath,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+ if err!=nil{return fmt.Errorf("cannot create a fresh worker log: %w",err)}
+ defer log.Close()
+ cmd.Stdin=strings.NewReader(embeddedCoreWrapper(core,*action,*dir))
+ cmd.Stdout=log
+ cmd.Stderr=log
+ if err=cmd.Run();err!=nil{
+  _,_=fmt.Fprintf(log,"Privileged worker failed: %v\n",err)
  }
  return err
 }
