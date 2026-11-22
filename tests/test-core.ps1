@@ -137,6 +137,16 @@ try {
     if($classification.Code -ne 'UNKNOWN'){throw 'Inspector treated malformed journal as valid'}
   }
   Write-Host 'Recovery journal structural fail-closed PASS: legacy valid, invalid version/owner/interface/route.'
+  $badCompletion=[pscustomobject]@{
+   version=7;ownerId=[guid]::NewGuid().ToString('D');wifiIndex=9;
+   routes=@($rec);pendingRoutes=@();rules=@();pendingRules=@();
+   restoreDoneRules=@('unrecorded-rule');restoreDoneIntents=@();restoreDoneRoutes=@()
+  }
+  $completionRejected=$false
+  try{Assert-RecoveryJournal $badCompletion}catch{$completionRejected=$true}
+  if(-not $completionRejected){throw 'Unrecognized terminal entry was trusted'}
+  Write-Host 'Completion record validation PASS: unrecorded terminal identity rejected.'
+
 
 
   # A separate PowerShell process must not acquire the same named mutex.
