@@ -187,7 +187,7 @@ function Find-PendingOwnedNrpt($intent,[string]$expectedComment=$OwnerComment){
 function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
  if($null -ne $journal){
   try{Assert-RecoveryJournal $journal}catch{
-   return [pscustomobject]@{Code='UNKNOWN';Reason='Recovery journal failed structural validation; preserve bytes and inspect manually.';Rules=0;Routes=0;Missing=0;Conflicts=0;Pending=0}
+   return [pscustomobject]@{Code='UNKNOWN';Reason='Recovery journal failed structural validation; preserve original bytes.';Rules=0;Routes=0;Missing=0;Conflicts=0;Pending=0}
   }
  }
  if($null -eq $journal){return [pscustomobject]@{Code='NO_JOURNAL';Reason='No local recovery journal. Absence of OS policies is not verified.';Rules=0;Routes=0}}
@@ -278,306 +278,59 @@ function Get-UnattributedOwnedNrpt($journal,$nrptRules) {
  }
  return $other
 }
-# Defensive schema/tuple checks before elevated cleanup. This detects accidental
-# corruption, but a user-writable JSON file is NOT cryptographically authenticated.
+# Validate persisted cleanup instructions before any privileged OS changes.
+# Structural validation is not cryptographic authentication of user-writable JSON.
 function Assert-RecoveryJournal($journal) {
  if($null -eq $journal){throw 'Recovery journal missing.'}
- $version=0
- $index=0
+ $version=0;$index=0
  if(-not [int]::TryParse([string]$journal.version,[ref]$version) -or $version -lt 3 -or $version -gt 7){
-  throw 'Recovery journal has unsupported schema version. No system objects changed.'
+  throw 'Unsupported recovery journal schema.'
  }
  if(-not [int]::TryParse([string]$journal.wifiIndex,[ref]$index) -or $index -le 0){
-  throw 'Recovery journal has invalid network interface index.'
+  throw 'Invalid recovery journal interface index.'
  }
  if($journal.routes -isnot [array] -or $journal.rules -isnot [array]){
-  throw 'Recovery journal is missing required route or DNS rule arrays.'
+  throw 'Recovery journal requires route and DNS rule arrays.'
  }
  if($version -ge 7){[void](Get-JournalOwnerComment $journal)}
- foreach($group in @(@($journal.routes),@($journal.pendingRoutes))){
-  if($group.Count -gt 4096){throw 'Recovery journal contains an implausible route count.'}
-  foreach($record in $group){
-   if($null -eq $record){throw 'Recovery journal contains a null route record.'}
-   $prefix=[string]$record.prefix
-   if($prefix -notmatch '^((?:[0-9]{1,3}\.){3}[0-9]{1,3})/32
- $st=State
- if(!$st){Write-Output 'No managed state.';return}
- Assert-RecoveryJournal $st
- $errors=@()
- $expectedComment=Get-JournalOwnerComment $st
- $knownRules=@($st.rules)
- foreach($name in $knownRules){
-  try{
-   $r=Get-DnsClientNrptRule -Name ([string]$name) -ErrorAction SilentlyContinue
-   if($r -and [string]$r.Comment -ceq $expectedComment){
-    Remove-DnsClientNrptRule -Name ([string]$name) -Force -ErrorAction Stop|Out-Null
-   }elseif($r){throw 'NRPT ownership mismatch'}
-  }catch{$errors+="NRPT $name : $_"}
- }
- foreach($intent in @(Pending-NrptRecords $st)){
-  try{
-   $matched=@(Find-PendingOwnedNrpt $intent $expectedComment)
-   foreach($r in $matched){
-    if($knownRules -contains ([string]$r.Name)){continue}
-    Remove-DnsClientNrptRule -Name ([string]$r.Name) -Force -ErrorAction Stop|Out-Null
-   }
-  }catch{$errors+="Pending NRPT $($intent.namespace) : $_"}
- }
- foreach($record in @(Route-Records $st)){
-  try{
-   $a=Get-NetAdapter -Name $WifiAlias -ErrorAction Stop
-   if([int]$a.ifIndex -ne [int]$st.wifiIndex){throw 'Interface index changed'}
-   $found=@(Get-NetRoute -InterfaceIndex ([int]$st.wifiIndex) -AddressFamily IPv4 -ErrorAction SilentlyContinue|
-    Where-Object { Test-ManagedRouteMatch $_ $record ([int]$st.wifiIndex) })
-   if($found.Count -gt 1){
-    throw 'Multiple identical route candidates exist; ownership is ambiguous. No route removed.'
-   }
-   foreach($r in $found){Remove-NetRoute -InputObject $r -Confirm:$false -ErrorAction Stop}
-  }catch{$errors+="Route $($record.prefix) : $_"}
- }
- if($errors.Count){$errors|ForEach-Object{Write-Warning $_};throw 'Restore incomplete. State retained.'}
- Remove-Item -LiteralPath $StatePath -Force
- Write-Output 'Managed routes and DNS rules restored; VPN default route left intact.'
-}
-# Read-only operations can proceed; all writes (including Apply/Restore) use
-# one cross-process writer lock. No implicit recovery if state is unfamiliar.
-$script:configMutex=$null
-$script:networkMutex=$null
-try {
- if($Action -in @('add','remove','apply','restore')){$script:configMutex=Enter-ConfigLock}
- if($Action -in @('apply','restore')){$script:networkMutex=Enter-NetworkLock}
- switch($Action){
- 'list'{Targets|ForEach-Object{Write-Output $_};break}
- 'add'{
-  $d=Normalize-Target $Domain
-  $all=@(@(Targets)+$d|Sort-Object -Unique)
-  Save-Json $ConfigPath @{domains=$all}
-  Write-Output "Saved $d. Apply to activate.";break
- }
- 'remove'{
-  $d=Normalize-Target $Domain
-  $all=@(Targets|Where-Object {$_ -ne $d})
-  Save-Json $ConfigPath @{domains=$all}
-  Write-Output "Removed $d. Apply to activate.";break
- }
- 'status'{
-  Get-NetAdapter -Name @($WifiAlias,$VpnAlias) -ErrorAction SilentlyContinue|
-   Select-Object Name,Status,ifIndex|Format-Table -AutoSize|Out-String|Write-Output
-  $routes=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue|
-   Where-Object DestinationPrefix -eq '0.0.0.0/0')
-  $routes|Select-Object InterfaceAlias,NextHop,RouteMetric|Format-Table -AutoSize|Out-String|Write-Output
-  Write-Output ("Saved entries: "+@((Targets)).Count+"; Recovery journal present (not proof of active routing): "+[bool](State))
-  break
- }
- 'dns'{
-  # Read-only, no changes to DNS, default route, or VPN.
-  $wifi=Adapter $WifiAlias
-  $servers=@(Wifi-Dns $wifi.ifIndex)
-  $names=if($Domain){@(Normalize-Target $Domain)}else{@(Targets)}
-  $st=State
-  foreach($n in $names){
-   Write-Output "Diagnostic: $n"
-   $ips=@()
-   if(Is-IPv4 $n){$ips=@($n)}
-   else{
-    foreach($server in $servers){
-     try{
-      $a=@(Lookup $n $server)
-      $ips+=$a
-      Write-Output ("Wi-Fi DNS A @ $server : "+($a -join ', '))
-     }catch{Write-Warning ("Wi-Fi DNS A lookup failed: "+$_)}
-    }
-    try{
-     $systemA=@(Resolve-DnsName -Name $n -Type A -DnsOnly -ErrorAction Stop|
-       Where-Object{$_.Type -eq 'A' -and $_.Section -eq 'Answer' -and $_.IPAddress}|
-       Select-Object -ExpandProperty IPAddress -Unique)
-     Write-Output ("Windows resolver A: "+($systemA -join ', '))
-     $diff=@($systemA|Where-Object{$ips -notcontains $_})
-     if($diff.Count){Write-Warning ("Windows A addresses missing from Wi-Fi lookup: "+($diff -join ', '))}
-    }catch{Write-Warning ("Windows resolver A failed: "+$_)}
-    try{
-     $v6=@(Resolve-DnsName -Name $n -Type AAAA -DnsOnly -ErrorAction Stop|
-       Where-Object{$_.Type -eq 'AAAA' -and $_.Section -eq 'Answer' -and $_.IPAddress}|
-       Select-Object -ExpandProperty IPAddress -Unique)
-     if($v6.Count){Write-Warning ("IPv6 AAAA addresses exist but IPv6 bypass is unsupported: "+($v6 -join ', '))}
-     else{Write-Output 'AAAA: none returned'}
-    }catch{Write-Output 'AAAA: none returned or lookup unavailable'}
-   }
-   foreach($ip in @($ips|Sort-Object -Unique)){
-    $prefix="$ip/32"
-    $owned=$false
-    if($st){$owned=(@($st.routes|Where-Object{$_.prefix -eq $prefix}).Count -gt 0)}
-    $matches=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue|
-       Where-Object{$_.DestinationPrefix -eq $prefix})
-    if(!$matches.Count){Write-Warning ("No /32 route for "+$ip+"; default route may be used.")}
-    foreach($route in $matches){
-     Write-Output ("Route "+$prefix+" interface="+$route.InterfaceAlias+" gateway="+$route.NextHop+" ownedRecord="+$owned)
-    }
-    try{
-     $chosen=Find-NetRoute -RemoteIPAddress $ip -ErrorAction Stop
-     if($chosen){Write-Output ("Selected route for "+$ip+": "+(($chosen|Out-String -Width 200).Trim()))}
-    }catch{Write-Warning ("Selected route lookup unavailable for "+$ip+": "+$_)}
-   }
-   Write-Output 'Browser DoH, existing sockets and site-side VPN checks are not observable here.'
-  };break
- }
- 'inspect'{
-  # Inspection is deliberately non-elevated and mutation-free.
-  try{
-   $state=State
-   $allNrpt=@(Get-DnsClientNrptRule -ErrorAction Stop)
-   $allRoutes=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction Stop)
-   $report=Inspect-JournalSnapshot $state $allNrpt $allRoutes
-   $configHealth=Get-ConfigHealth
-   $unattributed=@(Get-UnattributedOwnedNrpt $state $allNrpt)
-   $code=$report.Code
-   if($unattributed.Count -gt 0 -and $code -in @('NO_JOURNAL','MATCHED_SNAPSHOT')){
-    $code='UNATTRIBUTED_POLICIES'
-   }
-   if($configHealth -eq 'INVALID'){$code='CONFIG_INVALID'}
-   Write-Output ("Recovery inspection: "+$code)
-   Write-Output $report.Reason
-   Write-Output ("Saved list: "+$configHealth)
-   if($configHealth -eq 'INVALID'){
-    Write-Warning 'Saved exception list is unreadable or malformed. Original bytes preserved; do not overwrite or import blindly.'
-   }
-   if($unattributed.Count -gt 0){
-    Write-Warning ("Owner-tagged NRPT policies not attributable to this journal: "+$unattributed.Count+". May be a stale rule or another portable folder; ownership is NOT proven.")
-   }
-   if($null -ne $state){
-    Write-Output ("Recorded objects: DNS policies="+$report.Rules+" IPv4 routes="+$report.Routes)
-    Write-Output ("Unfinished="+$report.Pending+" missing="+$report.Missing+" conflicts="+$report.Conflicts)
-   }
-   Write-Output 'No changes were made. A matching snapshot is not proof of browser routing or site access.'
-  }catch{
-   Write-Warning 'Recovery inspection: UNKNOWN (journal unreadable or Windows inspection unavailable).'
-   Write-Output 'No changes were made. Preserve configuration files; do not delete network rules without verifying ownership.'
+ $routeList=@($journal.routes)+@($journal.pendingRoutes)
+ if($routeList.Count -gt 4096){throw 'Recovery journal contains too many routes.'}
+ foreach($record in $routeList){
+  if($null -eq $record){throw 'Recovery journal has a null route record.'}
+  $prefix=[string]$record.prefix
+  if($prefix -notmatch '^((?:[0-9]{1,3}\.){3}[0-9]{1,3})/32$'){
+   throw 'Only IPv4 /32 journal routes can be restored.'
   }
-  break
- }
- 'restore'{Require-Admin;Restore-Own;break}
- 'apply'{
-  Require-Admin
-  $wifi=Adapter $WifiAlias;$vpn=Adapter $VpnAlias
-  $vpnDefault=@(Get-NetRoute -InterfaceIndex $vpn.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue|
-   Where-Object DestinationPrefix -eq '0.0.0.0/0')
-  if(!$vpnDefault.Count){throw 'VPN default IPv4 route missing. No changes made.'}
-  $gateway=Wifi-Gateway $wifi.ifIndex
-  $dns=@(Wifi-Dns $wifi.ifIndex)
-  $names=@(Targets)
-  $ips=@();$hostnames=@()
-  foreach($n in $names){
-   if(Is-IPv4 $n){$ips+=$n;continue}
-   $answers=@(Lookup $n $dns[0])
-   if(!$answers.Count){throw "No Wi-Fi A record for $n. No changes made."}
-   $ips+=$answers;$hostnames+=$n
-  }
-  $ips=@($ips|Sort-Object -Unique)
-  # Fail closed if ANY route for a target prefix is not precisely in our
-  # previous state. Prefix-only ownership is insufficient.
-  $previous=State
-  foreach($ip in $ips){
-   $prefix="$ip/32"
-   $existing=@(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue|Where-Object DestinationPrefix -eq $prefix)
-   foreach($r in $existing){
-    $matched=$false
-    if($previous){
-     foreach($record in @(Route-Records $previous)){
-      if(Test-ManagedRouteMatch $r $record ([int]$previous.wifiIndex)){$matched=$true;break}
-     }
-    }
-    if(-not $matched){throw "Existing unmanaged route $prefix. No changes made."}
-   }
-  }
-  if(State){Restore-Own}
-  if(!$ips.Count -and !$hostnames.Count){Write-Output 'No exceptions saved. Nothing to apply.';break}
-  $st=[ordered]@{version=7;ownerId=([guid]::NewGuid().ToString('D'));wifiIndex=[int]$wifi.ifIndex;routes=@();pendingRoutes=@();rules=@()}
-  Save-Json $StatePath $st
-  try{
-   foreach($n in $hostnames){
-    foreach($ns in @($n,".$n")){
-     $existing=@(Get-NamespaceRules $ns)
-     if($existing.Count -gt 1){throw "Multiple DNS policies for $ns; manual review required."}
-     # Never adopt an owner-tagged orphan into a *new* identity. Legacy
-     # restoration still uses its original journal, without silent migration.
-     if($existing.Count -gt 0){
-      throw "Existing NRPT policy for $ns is not attributable to this new operation. No policy adopted or removed. Inspect before retrying."
-     }
-     # Journal intent before OS modification. A crash after Add but before
-     # receiving the assigned Windows Name can now be reconciled by exact tuple.
-     $intent=@{namespace=$ns;servers=@($dns)}
-     $st.pendingRules+=,$intent
-     Save-Json $StatePath $st
-     $r=Add-DnsClientNrptRule -Namespace $ns -NameServers $dns -Comment (Get-JournalOwnerComment $st) -PassThru -ErrorAction Stop
-     $st.rules+=([string]$r.Name)
-     $st.pendingRules=@($st.pendingRules|Where-Object{$_.namespace -cne $ns})
-     Save-Json $StatePath $st
-    }
-   }
-   foreach($ip in $ips){
-    $entry=@{prefix="$ip/32";gateway=$gateway}
-    # Write-ahead intent: if interrupted after OS route creation but before
-    # completion logging, Restore still knows exactly which tuple to inspect.
-    $st.pendingRoutes+=$entry
-    Save-Json $StatePath $st
-    New-NetRoute -DestinationPrefix $entry.prefix -InterfaceIndex $wifi.ifIndex -NextHop $gateway -RouteMetric 1 -PolicyStore ActiveStore -ErrorAction Stop|Out-Null
-    $st.routes+=$entry
-    $st.pendingRoutes=@($st.pendingRoutes|Where-Object{$_.prefix -ne $entry.prefix})
-    Save-Json $StatePath $st
-   }
-  }catch{
-   $reason=$_.Exception.Message
-   try{Restore-Own}catch{Write-Warning 'Automatic rollback failed. Inspect managed state.'}
-   throw "Apply failed: $reason"
-  }
-  Write-Output "Applied $($ips.Count) IPv4 routes, $($hostnames.Count) hostnames. Default VPN and Tailscale routes unchanged."
-  Write-Warning 'This does not guarantee domain isolation: IPv6, DoH, QUIC, and CDN IP sharing may differ.'
-  break
- }
-}
-} finally {
- if($null -ne $script:networkMutex){
-  try{$script:networkMutex.ReleaseMutex()}finally{$script:networkMutex.Dispose()}
- }
- if($null -ne $script:configMutex){
-  try{$script:configMutex.ReleaseMutex()}finally{$script:configMutex.Dispose()}
- }
-}
-){
-    throw 'Recovery journal contains a route that is not an IPv4 host prefix.'
-   }
-   $ip=$null
-   $gateway=$null
-   if(-not [Net.IPAddress]::TryParse($Matches[1],[ref]$ip) -or
-      $ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
-      -not [Net.IPAddress]::TryParse([string]$record.gateway,[ref]$gateway) -or
-      $gateway.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork){
-    throw 'Recovery journal contains invalid IPv4 route data.'
-   }
+  $address=$null;$gateway=$null
+  if(-not [Net.IPAddress]::TryParse([string]$Matches[1],[ref]$address) -or
+     $address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
+     -not [Net.IPAddress]::TryParse([string]$record.gateway,[ref]$gateway) -or
+     $gateway.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork){
+   throw 'Invalid recovery journal IPv4 route record.'
   }
  }
- foreach($rule in @($journal.rules)){
-  if([string]::IsNullOrWhiteSpace([string]$rule)){throw 'Recovery journal has a blank rule ID.'}
+ foreach($name in @($journal.rules)){
+  if([string]::IsNullOrWhiteSpace([string]$name)){throw 'Blank recovery journal DNS rule identifier.'}
  }
  foreach($intent in @($journal.pendingRules)){
   if($null -eq $intent -or [string]::IsNullOrWhiteSpace([string]$intent.namespace) -or @($intent.servers).Count -eq 0){
-   throw 'Recovery journal has an invalid pending DNS policy.'
+   throw 'Invalid pending DNS journal entry.'
   }
-  $hostName=([string]$intent.namespace).TrimStart('.')
-  if(([string]$intent.namespace -ne $hostName) -and -not ([string]$intent.namespace).StartsWith('.')){
-   throw 'Invalid DNS policy namespace.'
-  }
-  if((Normalize-Target $hostName) -ne $hostName -or (Is-IPv4 $hostName)){
-   throw 'Recovery journal contains an invalid DNS policy hostname.'
+  $ns=[string]$intent.namespace
+  $hostName=$ns.TrimStart('.')
+  if(($ns -cne $hostName -and $ns -cne ('.'+$hostName)) -or
+     (Normalize-Target $hostName) -cne $hostName -or (Is-IPv4 $hostName)){
+   throw 'Invalid pending DNS namespace.'
   }
   foreach($server in @($intent.servers)){
-   if(-not (Is-IPv4 ([string]$server))){throw 'Recovery journal has an invalid DNS server.'}
+   if(-not (Is-IPv4 ([string]$server))){throw 'Invalid pending DNS server.'}
   }
  }
 }
 function Restore-Own {
  $st=State
  if(!$st){Write-Output 'No managed state.';return}
+ Assert-RecoveryJournal $st
  $errors=@()
  $expectedComment=Get-JournalOwnerComment $st
  $knownRules=@($st.rules)
