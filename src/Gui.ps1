@@ -182,6 +182,25 @@ function Get-RunningNotice([string]$action,[int]$elapsed) {
  }
  return "Running $action ($elapsed s)... The window is responsive."
 }
+# Diagnostic codes are advisory; they do not prove rollback succeeded.
+function Get-FailureGuidance([string]$details,[int]$nativeErrorCode=0) {
+ if($nativeErrorCode -eq 1223 -or $details -match '(?i)operation was cancel(?:l)?ed by the user'){
+  return '[UAC_CANCELLED] Approval was cancelled. No completion was confirmed; inspect any prior recovery journal.'
+ }
+ if($details -match '(?i)cannot create a fresh worker log|worker log must reside'){
+  return '[LOG_UNAVAILABLE] The elevated helper could not create its result log. Check the Windows TEMP directory.'
+ }
+ if($details -match '(?i)recovery journal|invalid.*owner identity|unsupported.*schema|malformed.*configuration'){
+  return '[JOURNAL_INVALID] Recovery records are unreadable or incompatible. Preserve their original bytes and run Inspect.'
+ }
+ if($details -match '(?i)ambiguous|unmanaged route|existing NRPT policy|ownership.*mismatch|another network operation'){
+  return '[OWNERSHIP_CONFLICT] Existing Windows objects or another operation prevent a safe change. Inspect before retrying.'
+ }
+ if($details -match '(?i)adapter is not connected|default IPv4 route missing|cannot determine Wi-Fi gateway|no Wi-Fi DNS configured'){
+  return '[NETWORK_UNAVAILABLE] Expected adapter, VPN route, gateway or DNS is unavailable. Check connections and run Status.'
+ }
+ return '[WORKER_FAILED] No success was confirmed. Retain the journal and use Inspect before reapplying.'
+}
 # Single timer in GUI script scope; no GetNewClosure / separate module state.
 $script:actionTimer=New-Object Windows.Forms.Timer
 $script:actionTimer.Interval=150
@@ -200,7 +219,7 @@ $script:actionTimer.Add_Tick({
     if(Test-Path -LiteralPath $script:activeLogPath){
       $output=Get-Content -LiteralPath $script:activeLogPath -Raw -ErrorAction Stop
       if($exitCode -eq 0){$log.Text="Completed: $($script:activeAction)"+[Environment]::NewLine+$output}
-      else{$log.Text="FAILED: $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+$output}
+      else{$log.Text="FAILED: $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+(Get-FailureGuidance $output)+[Environment]::NewLine+$output}
     }else{$log.Text="FAILED: No result log for $($script:activeAction) (exit $exitCode)"}
   }catch{
     $log.Text="Worker completion error: $($_.Exception.Message)"
@@ -266,7 +285,9 @@ function Run-Action([string]$action,[string]$target='') {
     $script:activeAction=$null
     $script:activeProcess=$null
     $script:activeLogPath=$null
-    $log.Text="Failed to start $action : $($_.Exception.Message)"
+    $nativeCode=0
+    if($_.Exception -is [ComponentModel.Win32Exception]){$nativeCode=$_.Exception.NativeErrorCode}
+    $log.Text="Failed to start $action : "+(Get-FailureGuidance $_.Exception.Message $nativeCode)+[Environment]::NewLine+$_.Exception.Message
     return $false
   }
 }
@@ -286,7 +307,7 @@ $entry.Add_KeyDown({
  }
 })
 $items.Add_SelectedIndexChanged({
- $remove.Enabled=($items.SelectedIndex -ge 0 -and -not $script:running)
+ $remove.Enabled=($items.SelectedIndex -ge 0 -and -not $script:running -and -not $script:configInvalid)
 })
 $items.Add_KeyDown({
  param($sender,$keyEvent)
@@ -337,6 +358,19 @@ exit 0
     }
   }
   try {
+    foreach($case in @(
+      @{details='Operation was canceled by the user.';code=1223;expect='UAC_CANCELLED'},
+      @{details='cannot create a fresh worker log';code=0;expect='LOG_UNAVAILABLE'},
+      @{details='Recovery journal has unsupported schema';code=0;expect='JOURNAL_INVALID'},
+      @{details='Preflight: duplicate matching route candidates';code=0;expect='OWNERSHIP_CONFLICT'},
+      @{details='Wi-Fi adapter is not connected.';code=0;expect='NETWORK_UNAVAILABLE'},
+      @{details='Unhandled worker failure';code=0;expect='WORKER_FAILED'}
+    )){
+      $guidance=Get-FailureGuidance $case.details $case.code
+      if($guidance -notmatch ('^\['+$case.expect+'\]')){
+        throw ('Wrong failure guidance: '+$case.expect+' => '+$guidance)
+      }
+    }
     # Long-running notice never promises a safe automatic rollback or cancellation.
     if((Get-RunningNotice 'apply' 35) -notmatch 'no automatic cancellation'){
       throw 'Long-running work did not explain cancellation limitations'
