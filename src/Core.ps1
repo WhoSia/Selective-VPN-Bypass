@@ -210,7 +210,7 @@ function Find-PendingOwnedNrpt($intent,[string]$expectedComment=$OwnerComment){
 # it contains READ bits too. Compare only write/delete/ACL-changing bits.
 function Test-WriteCapableFileRights($rights) {
  $writeMask=[int]([Security.AccessControl.FileSystemRights]::Write -bor
-  [Security.AccessControl.FileSystemRights]::Modify -bor
+  [Security.AccessControl.FileSystemRights]::Delete -bor
   [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
   [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
   [Security.AccessControl.FileSystemRights]::TakeOwnership)
