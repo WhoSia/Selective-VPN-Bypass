@@ -345,6 +345,21 @@ try{
   }
   Write-Host 'Restore postcondition PASS: API-reported success but OS rule remains keeps journal.'
 
+  # An NRPT policy removed externally (or by OS reset) is already absent.
+  # Preflight must not mistake an empty array for one ambiguous rule.
+  $script:mockNrpt=@()
+  $script:removedNrpt=@()
+  Save-Json $StatePath ([ordered]@{
+    version=6;wifiIndex=9;rules=@('already-absent-rule');
+    pendingRules=@();routes=@();pendingRoutes=@()
+  })
+  Restore-Own|Out-Null
+  if((Test-Path $StatePath) -or $script:removedNrpt.Count -ne 0){
+    throw 'An already-absent NRPT rule blocked Restore or caused deletion'
+  }
+  Write-Host 'Missing NRPT convergence PASS: empty inventory treated as absent.'
+
+
   # Partial success must persist a terminal record for the first rule. Even if
   # another software recreates that Name, retry may not delete it again.
   $script:mockNrpt=@(
