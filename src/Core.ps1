@@ -385,6 +385,7 @@ function Get-RestorePreflight($st) {
  Assert-RecoveryJournal $st
  $owner=Get-JournalOwnerComment $st
  $ruleNames=@()
+ $intentNames=@{}
  $known=@($st.rules)
  $doneRules=@($st.restoreDoneRules)
  $doneIntents=@($st.restoreDoneIntents)
@@ -402,6 +403,7 @@ function Get-RestorePreflight($st) {
   if($doneIntents -ccontains ([string]$intent.namespace)){continue}
   foreach($r in @(Find-PendingOwnedNrpt $intent $owner)){
    if($ruleNames -notcontains ([string]$r.Name)){$ruleNames+=([string]$r.Name)}
+   $intentNames[[string]$r.Name]=[string]$intent.namespace
   }
  }
  $routeItems=@()
@@ -418,7 +420,7 @@ function Get-RestorePreflight($st) {
    $routeItems+=,$record
   }
  }
- return [pscustomobject]@{RuleNames=@($ruleNames);Routes=@($routeItems)}
+ return [pscustomobject]@{RuleNames=@($ruleNames);Routes=@($routeItems);IntentNames=$intentNames}
 }
 function Restore-Own {
  $st=State
@@ -438,7 +440,13 @@ function Restore-Own {
    }
    $after=@(Get-DnsClientNrptRule -ErrorAction Stop | Where-Object { [string]$_.Name -ceq [string]$name })
    if($after.Count -ne 0){throw 'NRPT still exists after removal.'}
-   Save-RestoreCompletion $st 'restoreDoneRules' ([string]$name)
+   if(@($st.rules) -ccontains ([string]$name)){
+    Save-RestoreCompletion $st 'restoreDoneRules' ([string]$name)
+   }elseif($plan.IntentNames.ContainsKey([string]$name)){
+    Save-RestoreCompletion $st 'restoreDoneIntents' ([string]$plan.IntentNames[[string]$name])
+   }else{
+    throw 'Completed NRPT cannot be linked to a journal record.'
+   }
   }catch{$errors+="NRPT removal or verification failed: $_"}
  }
  foreach($intent in @(Pending-NrptRecords $st)){
