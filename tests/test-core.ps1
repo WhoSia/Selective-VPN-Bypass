@@ -196,6 +196,7 @@ try{
   # End-to-end Restore-Own with mocked Windows NetTCPIP cmdlets:
   # same destination prefix, but one is owned and the other is foreign.
   $script:removedRoutes=@()
+  $script:routeGone=$false
   function Get-NetAdapter {
     [CmdletBinding()]
     param([string]$Name)
@@ -206,15 +207,15 @@ try{
     param([int]$InterfaceIndex,[string]$AddressFamily)
     $owned=[pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.1';InterfaceIndex=9;RouteMetric=1}
     if($script:duplicateRoutes){return @($owned,$owned)}
-    return @(
-      $owned,
-      [pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.254';InterfaceIndex=9;RouteMetric=1}
-    )
+    $foreign=[pscustomobject]@{DestinationPrefix='192.0.2.10/32';NextHop='192.0.2.254';InterfaceIndex=9;RouteMetric=1}
+    if($script:routeGone){return @($foreign)}
+    return @($owned,$foreign)
   }
   function Remove-NetRoute {
     [CmdletBinding(SupportsShouldProcess=$true)]
     param([object]$InputObject)
     $script:removedRoutes+=,$InputObject
+    $script:routeGone=$true
   }
   $journal=[ordered]@{version=5;wifiIndex=9;routes=@();pendingRoutes=@($rec);rules=@()}
   Save-Json $StatePath $journal
@@ -255,6 +256,7 @@ try{
     [CmdletBinding()]
     param([string]$Name,[switch]$Force)
     $script:removedNrpt+=,$Name
+    $script:mockNrpt=@($script:mockNrpt|Where-Object{$_.Name -ne $Name})
   }
   $pendingRule=[pscustomobject]@{namespace='example.org';servers=@('192.0.2.53')}
   $state6=[ordered]@{version=6;wifiIndex=9;routes=@();pendingRoutes=@();rules=@();pendingRules=@($pendingRule)}
@@ -277,6 +279,61 @@ try{
   }
   Remove-Item -LiteralPath $StatePath -Force
   Write-Host 'NRPT collision safety PASS: foreign policy refused, journal retained.'
+
+  # An ambiguous late route must block preflight *before* any earlier NRPT deletion.
+  $script:mockNrpt=@([pscustomobject]@{
+    Name='preflight-owned';Namespace=@('example.org');
+    Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')
+  })
+  $script:removedNrpt=@()
+  $script:removedRoutes=@()
+  $script:routeGone=$false
+  $script:duplicateRoutes=$true
+  $mixed=[ordered]@{
+    version=6;wifiIndex=9;rules=@('preflight-owned');pendingRules=@();
+    routes=@($rec);pendingRoutes=@()
+  }
+  Save-Json $StatePath $mixed
+  $blocked=$false
+  try{Restore-Own|Out-Null}catch{$blocked=$true}
+  if(-not $blocked -or $script:removedNrpt.Count -gt 0 -or $script:removedRoutes.Count -gt 0 -or -not (Test-Path $StatePath)){
+    throw 'Restore touched NRPT before detecting an ambiguous route in preflight.'
+  }
+  $script:duplicateRoutes=$false
+  Remove-Item -LiteralPath $StatePath -Force
+  Write-Host 'Restore all-object preflight PASS: late route ambiguity prevents earlier DNS deletion.'
+
+  # Successful mutation without OS disappearance must NOT clear recovery state.
+  $script:mockNrpt=@([pscustomobject]@{
+    Name='stubborn-owned';Namespace=@('example.org');
+    Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')
+  })
+  $script:removedNrpt=@()
+  $script:routeGone=$true
+  Save-Json $StatePath ([ordered]@{
+    version=6;wifiIndex=9;rules=@('stubborn-owned');pendingRules=@();
+    routes=@();pendingRoutes=@()
+  })
+  function Remove-DnsClientNrptRule {
+    [CmdletBinding()]
+    param([string]$Name,[switch]$Force)
+    $script:removedNrpt+=,$Name
+    # A mocked API reports success without actually removing its OS object.
+  }
+  $postFailed=$false
+  try{Restore-Own|Out-Null}catch{$postFailed=$true}
+  if(-not $postFailed -or $script:removedNrpt.Count -eq 0 -or -not (Test-Path $StatePath)){
+    throw 'Restore trusted removal exit status without verifying absence.'
+  }
+  Remove-Item -LiteralPath $StatePath -Force
+  function Remove-DnsClientNrptRule {
+    [CmdletBinding()]
+    param([string]$Name,[switch]$Force)
+    $script:removedNrpt+=,$Name
+    $script:mockNrpt=@($script:mockNrpt|Where-Object{$_.Name -ne $Name})
+  }
+  Write-Host 'Restore postcondition PASS: API-reported success but OS rule remains keeps journal.'
+
 
 
 
