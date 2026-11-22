@@ -334,6 +334,45 @@ try{
   }
   Write-Host 'Restore postcondition PASS: API-reported success but OS rule remains keeps journal.'
 
+  # Partial success must persist a terminal record for the first rule. Even if
+  # another software recreates that Name, retry may not delete it again.
+  $script:mockNrpt=@(
+   [pscustomobject]@{Name='done-once';Namespace=@('done.example');Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')},
+   [pscustomobject]@{Name='fail-second';Namespace=@('later.example');Comment='Selective-VPN-Bypass-owned';NameServers=@('192.0.2.53')}
+  )
+  $script:removedNrpt=@()
+  $script:failSecond=$true
+  Save-Json $StatePath ([ordered]@{
+   version=6;wifiIndex=9;rules=@('done-once','fail-second');routes=@();
+   pendingRoutes=@();pendingRules=@()
+  })
+  function Remove-DnsClientNrptRule {
+   [CmdletBinding()]
+   param([string]$Name,[switch]$Force)
+   if($Name -eq 'fail-second' -and $script:failSecond){throw 'Injected second-rule failure'}
+   $script:removedNrpt+=,$Name
+   $script:mockNrpt=@($script:mockNrpt|Where-Object{$_.Name -cne $Name})
+  }
+  $partialFailure=$false
+  try{Restore-Own|Out-Null}catch{$partialFailure=$true}
+  if(-not $partialFailure -or -not (Test-Path $StatePath)){throw 'Partial restore did not retain its journal'}
+  $reloaded=Get-Content $StatePath -Raw|ConvertFrom-Json
+  if(@($reloaded.restoreDoneRules) -cnotcontains 'done-once' -or
+     @($reloaded.restoreDoneRules) -ccontains 'fail-second'){
+   throw 'Terminal state was not durably recorded after the first successful deletion'
+  }
+  $script:mockNrpt+=,[pscustomobject]@{
+   Name='done-once';Namespace=@('new-owner.example');Comment='Foreign replacement';NameServers=@('192.0.2.53')
+  }
+  $script:failSecond=$false
+  Restore-Own|Out-Null
+  if((Test-Path $StatePath) -or @($script:removedNrpt|Where-Object{$_ -eq 'done-once'}).Count -ne 1 -or
+     @($script:mockNrpt|Where-Object{$_.Name -eq 'done-once' -and $_.Comment -eq 'Foreign replacement'}).Count -ne 1){
+   throw 'Retry deleted a terminally completed identity or failed to converge'
+  }
+  Write-Host 'Restore completion journal PASS: first success persists, later failure retains state, retry skips replacement.'
+
+
 
 
 
