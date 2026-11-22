@@ -390,6 +390,18 @@
 - **사용자 마이그레이션:** 신규 Apply가 레거시 orphan 규칙을 자동 채택하지 않기 때문에 기존 복구 저널 없이 규칙만 남은 환경에서는 수동 진단이 필요할 수 있음. 기존 설정·저널을 보존하고 Inspect를 우선 실행해야 함. 무단 삭제·자동 상태 파일 이동 없음.
 - **GitHub 운영:** `main`에 WhoSia 직접 커밋, GitHub Actions[bot] 소스 기여 없음. ZIP/EXE는 GitHub Actions 아티팩트만 배포.
 
+## 2026-11-22 — Cross-folder Mutex · Route Collision Fail-Closed · Journal Validation [COMMITTED / CI PASS]
+
+- **연구·개발 목표:** `AUDIT_2026-11-22.md`에서 남은 서로 다른 Portable 폴더 간 네트워크 변경 경합과 라우트 원본 소유권의 불확실성, 관리자 권한 Restore의 JSON 입력 신뢰 문제를 동시에 줄임. 프로그램의 예외 범위 확장이나 외부 네트워크 접근 기능 추가는 없음.
+- [`1882c99`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/1882c99cf8d9357ad2ef283438f391392c406766): `Local\\SelectiveVPNBypass-NetworkWriter` named mutex 도입. 동일 Windows 세션에서 다른 설정 폴더의 Apply/Restore를 직렬화하고, 기존 설정 폴더별 잠금과 함께 획득·해제. `Restore-Own`은 동일 tuple로 일치하는 Windows Route가 2개 이상이면 삭제하지 않고 상태 파일을 보존.
+- [`180df75`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/180df75aad58844f2e8d361f8200d2a16baced2d): 서로 다른 설정 디렉터리에서 발생한 별도 PowerShell 프로세스의 경합 테스트, 모의 duplicate route 2개의 삭제 거부 및 상태 보존 테스트.
+- **저널 검증:** [`35f0e85`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/35f0e85c22d5cc05541ff5992adc484e6c06dc64)에서 `Assert-RecoveryJournal` 함수 추가. 복구 전에 version, wifiIndex, 필수 배열, IPv4 /32+gateway와 pending DNS 구조를 검사하고 `Inspect`는 실패를 `UNKNOWN`으로 판정. [`9173aa6`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/9173aa68547a0f3f0190d06b715d649058376874)에서 유효한 v5 예제·지원되지 않는 버전·누락 v7 ownerId·기본 경로(/0)·유효하지 않은 게이트웨이 등에 대한 회귀 테스트 추가.
+- **중간 실패를 숨기지 않음:** [Actions `44967599914`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967599914) 및 [`44967616569`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967616569)에서 저널 검사 블록을 GitHub 소스에 삽입하는 JS 문자열 치환 특수 시퀀스(`$'`)가 예상치 못한 소스 복제를 일으켜 PowerShell ParserError가 발생. 손상 전 [`180df75`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/180df75aad58844f2e8d361f8200d2a16baced2d) 소스에서 안전한 함수형 치환으로 다시 구성해 복구. 이후 [Actions `44967703910`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967703910)에서는 구형 저널에 없는 `pendingRules`가 null로 해석되어 `Invalid pending DNS journal entry`가 발생함을 발견, [`f43f4f6`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/f43f4f6d5944d62e9e1a767c589638391e78573e)에서 선택적 필드 부재를 허용하는 방식으로 수정.
+- **최종 회귀 검증:** [Windows Portable `44967787678`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967787678) 전체 성공. Cross-process single-writer mutex PASS, **Cross-folder same-session network mutex PASS**, Mocked Restore PASS, **Ambiguous duplicate route Restore fail-closed PASS**, 기존 NRPT v7 소유권·구형 저널·Recovery Inspector·설정 무결성·GUI 버튼 회귀 PASS. Go 테스트, Windows x64 컴파일, ZIP 업로드 PASS. Artifact `SelectiveVPNBypass-Portable-Windows-x64`, ID `14731274893`, ZIP SHA-256 `18970d378d493ec2538ad3b6a7d603b252cf8c4e772ca987e7eeefd17e2704c2`. [격리 Windows 복구 `44967787722`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967787722) PASS.
+- **검증되지 않은 위험:** `Local\\` Mutex는 같은 사용자 세션 외 프로세스 전체를 통제하지 않으며, 관리자 권한이 다른 프로그램이 만든 동일 라우트를 원래 소유자로부터 구별할 증거가 없음. JSON 스키마 검증은 파일 변경의 탐지에 제한적이며 암호학적 진본성 보장이 아님. Windows 강제 종료 모든 경계·UAC 취소·학교/기업 관리 네트워크에서의 정책 변경 결과는 검증하지 않음.
+- **문서:** [README.md](README.md) 안전성 경계와 [Build Actions `44967787678`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967787678) 최신 Portable 링크 동기화. 기존 main 중심 운영을 유지하고, 소스 커밋 작성자·커미터 WhoSia로 설정, Actions[bot] 소스 커밋 없음.
+- **후속 게이트:** 복구 저널의 신뢰/권한 분리와 타 Windows 세션 소유권 경계, 동일 tuple 라우트의 출처 불명 문제에 대한 보수적 정책, 실제 VM fault-injection test의 다중 인스턴스 시나리오.
+
 ## 이후 기록 템플릿
 
 ```markdown
