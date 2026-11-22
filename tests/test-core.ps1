@@ -176,6 +176,8 @@ try {
    @{state=[pscustomobject]@{version=8;ownerId=[guid]::NewGuid().ToString('D');wifiIndex=9;rules=@();ruleDetails=@();routes=@();pendingRules=@();pendingRoutes=@()};code='EMPTY_JOURNAL_REVIEW'},
    @{state=[pscustomobject]@{version=7;ownerId=[guid]::NewGuid().ToString('D');wifiIndex=9;rules=@();routes=@($rec);pendingRules=@();pendingRoutes=@()};code='BLOCKED_RECORDED_OBJECTS'},
    @{state=[pscustomobject]@{version=7;ownerId=[guid]::NewGuid().ToString('D');wifiIndex=9;rules=@();routes=@();pendingRules=@([pscustomobject]@{namespace='example.org';servers=@('192.0.2.53')});pendingRoutes=@()};code='BLOCKED_PENDING'},
+   @{state=[pscustomobject]@{version=8;ownerId=[guid]::NewGuid().ToString('D');wifiIndex=9;rules=@();ruleDetails=@();routes=@();pendingRules=@();pendingRoutes=@($rec)};code='BLOCKED_PENDING'},
+   @{state=[pscustomobject]@{version=8;ownerId=[guid]::NewGuid().ToString('D');wifiIndex=9;rules=@('managed-rule');ruleDetails=@([pscustomobject]@{name='managed-rule';namespace='example.org';servers=@('192.0.2.53')});routes=@();pendingRules=@();pendingRoutes=@()};code='BLOCKED_RECORDED_OBJECTS'},
    @{state=[pscustomobject]@{version=999;wifiIndex=9;rules=@();routes=@()};code='BLOCKED_INVALID_JOURNAL'}
   )
   foreach($case in $migrationCases){
