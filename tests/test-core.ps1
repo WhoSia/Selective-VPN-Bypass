@@ -662,6 +662,20 @@ try{
   }
   Write-Host 'Read-only recovery inspection command PASS: missing journal remains absent.'
 
+  # FileSystemRights.FullControl contains Read bits. A readable directory
+  # is not necessarily a broadly writable privileged-store directory.
+  $readOnlyRights=[Security.AccessControl.FileSystemRights]::ReadAndExecute
+  $writeRights=[Security.AccessControl.FileSystemRights]::Write
+  $modifyRights=[Security.AccessControl.FileSystemRights]::Modify
+  $aclEditRights=[Security.AccessControl.FileSystemRights]::ChangePermissions
+  if((Test-WriteCapableFileRights $readOnlyRights) -or
+     -not (Test-WriteCapableFileRights $writeRights) -or
+     -not (Test-WriteCapableFileRights $modifyRights) -or
+     -not (Test-WriteCapableFileRights $aclEditRights)){
+   throw 'ACL diagnostic confused read-only and write-capable access rights.'
+  }
+  Write-Host 'ACL rights predicate PASS: read-only grants ignored, write and ACL edit detected.'
+
   # Privileged-store readiness check is observational only. It must neither
   # create an authority directory nor overwrite any existing object.
   $fakeCommonData=Join-Path $testDir 'fake-common-data'
