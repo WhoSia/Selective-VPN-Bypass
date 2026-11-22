@@ -183,6 +183,28 @@ function Get-TargetsBackupJson([string]$source) {
   domains=@($targets|Sort-Object -Unique)
  }) -Depth 4)
 }
+# Exclusive creation: a backup action must not replace a user's existing file.
+function Save-TargetsBackupFile([string]$destination,[string]$payload) {
+ $created=$false
+ $stream=$null
+ $writer=$null
+ try {
+  $stream=[IO.File]::Open($destination,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  $created=$true
+  $writer=[IO.StreamWriter]::new($stream,[Text.UTF8Encoding]::new($false))
+  $writer.Write($payload)
+  $writer.Flush()
+ }catch{
+  $failure=$_
+  if($null -ne $writer){$writer.Dispose();$writer=$null;$stream=$null}
+  elseif($null -ne $stream){$stream.Dispose();$stream=$null}
+  if($created){Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue}
+  throw $failure
+ }finally{
+  if($null -ne $writer){$writer.Dispose()}
+  elseif($null -ne $stream){$stream.Dispose()}
+ }
+}
 function Set-UiBusy([bool]$busy) {
   foreach($button in @($add,$top[1][0],$top[1][1],$other[1][0],$other[1][1],$other[1][2],$other[1][3])){
     $button.Enabled = -not $busy
@@ -363,16 +385,9 @@ $other[1][3].Add_Click({
   $dialog.OverwritePrompt=$false # CreateNew never overwrites; an occupied filename produces a clear error.
   try{
    if($dialog.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK){return}
-   # No silent overwrite even if the dialog was confirmed.
-   $stream=[IO.File]::Open($dialog.FileName,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+   # No silent overwrite even when the chosen name already exists.
+   Save-TargetsBackupFile $dialog.FileName $payload
    $created=$dialog.FileName
-   $writer=$null
-   try{
-    $writer=[IO.StreamWriter]::new($stream,[Text.UTF8Encoding]::new($false))
-    $writer.Write($payload)
-   }finally{
-    if($null -ne $writer){$writer.Dispose()}else{$stream.Dispose()}
-   }
   }finally{$dialog.Dispose()}
   $log.Text='Targets backup created. It contains saved exceptions only; no routes or NRPT recovery state.'
  }catch{
@@ -496,6 +511,20 @@ exit 0
       throw 'Portable backup contains recovery journal data or is malformed.'
     }
     if($other[1][3].Text -ne 'Backup'){throw 'Missing safe configuration backup action.'}
+
+    $backupPath=Join-Path $DataDir 'backup-regression.json'
+    $payload=Get-TargetsBackupJson $config
+    Save-TargetsBackupFile $backupPath $payload
+    $firstBackup=[IO.File]::ReadAllBytes($backupPath)
+    $overwriteRejected=$false
+    try{Save-TargetsBackupFile $backupPath '{"different":true}'}catch{$overwriteRejected=$true}
+    $secondBackup=[IO.File]::ReadAllBytes($backupPath)
+    if(-not $overwriteRejected -or
+       [Convert]::ToBase64String($firstBackup) -cne [Convert]::ToBase64String($secondBackup)){
+      throw 'Targets backup overwrote an existing file.'
+    }
+    Remove-Item -LiteralPath $backupPath -Force
+
     # A malformed saved list must not look like an editable empty list.
     $goodConfig=Get-Content -LiteralPath $config -Raw
     try{
