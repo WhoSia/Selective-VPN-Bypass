@@ -57,6 +57,20 @@ func TestElevatedPortableFileBoundary(t *testing.T) {
   if err:=os.Remove(config);err!=nil{t.Fatal(err)}
  }
  if err:=validatePortableFileBoundary(dir);err!=nil{t.Fatal(err)}
+ // A normal final folder nested under a redirected ancestor is also unsafe.
+ // Windows without symlink privileges skips only this optional creation.
+ realParent:=filepath.Join(t.TempDir(),"real-parent")
+ if err:=os.Mkdir(realParent,0700);err!=nil{t.Fatal(err)}
+ normalChild:=filepath.Join(realParent,"portable")
+ if err:=os.Mkdir(normalChild,0700);err!=nil{t.Fatal(err)}
+ linkedParent:=filepath.Join(t.TempDir(),"linked-parent")
+ if err:=os.Symlink(realParent,linkedParent);err==nil{
+  if err:=validatePortableFileBoundary(filepath.Join(linkedParent,"portable"));err==nil{
+   t.Fatal("accepted a regular Portable folder through a redirected ancestor")
+  }
+  if err:=os.Remove(linkedParent);err!=nil{t.Fatal(err)}
+ }
+ if err:=validatePortableFileBoundary(normalChild);err!=nil{t.Fatal(err)}
 }
 
 func TestWorkerLogExclusive(t *testing.T) {
