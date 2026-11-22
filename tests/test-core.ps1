@@ -714,6 +714,41 @@ try{
   if(@(Get-ChildItem -LiteralPath $store -Force).Count -ne 0){
    throw 'Trust inspection wrote to privileged-store test directory.'
   }
+  # Model hostile and read-only ACEs without modifying the host ACL.
+  # IdentityReference.Translate can fail on mocks; fallback SID/name must still
+  # recognize broad principals, never silently turn write into safe status.
+  $broadAcl=& {
+   function Get-Acl {
+    [CmdletBinding()]
+    param([string]$LiteralPath)
+    [pscustomobject]@{Access=@([pscustomobject]@{
+     AccessControlType=[Security.AccessControl.AccessControlType]::Allow
+     IdentityReference=[pscustomobject]@{Value='Everyone'}
+     FileSystemRights=[Security.AccessControl.FileSystemRights]::Write
+    })}
+   }
+   Get-PrivilegedStoreHealth $fakeCommonData
+  }
+  if($broadAcl.Code -ne 'BROAD_WRITE_ACE'){
+   throw ('Mock Everyone Write ACE was not detected: '+$broadAcl.Code)
+  }
+  $readAcl=& {
+   function Get-Acl {
+    [CmdletBinding()]
+    param([string]$LiteralPath)
+    [pscustomobject]@{Access=@([pscustomobject]@{
+     AccessControlType=[Security.AccessControl.AccessControlType]::Allow
+     IdentityReference=[pscustomobject]@{Value='BUILTIN\Users'}
+     FileSystemRights=[Security.AccessControl.FileSystemRights]::ReadAndExecute
+    })}
+   }
+   Get-PrivilegedStoreHealth $fakeCommonData
+  }
+  if($readAcl.Code -ne 'ACL_UNVERIFIED'){
+   throw ('Read-only broad ACE was misreported as writable or verified: '+$readAcl.Code)
+  }
+  Write-Host 'Privileged-store adversarial ACL mocks PASS: broad write is flagged and read-only is not assurance.'
+
   Write-Host 'Privileged store read-only diagnostics PASS: absent store, invalid object, ACL observation, zero writes.'
 
 
