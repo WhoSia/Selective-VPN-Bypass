@@ -246,6 +246,26 @@ function Get-PrivilegedStoreHealth([string]$commonDataRoot='') {
   return [pscustomobject]@{Code='UNKNOWN';Reason='Cannot establish privileged-store path or access-control status read-only.'}
  }
 }
+# Read-only migration gate: classification is not authorization to import a
+# user-editable journal into a privileged authority store.
+function Get-JournalMigrationGate($journal) {
+ if($null -eq $journal){
+  return [pscustomobject]@{Code='NO_LOCAL_JOURNAL';Reason='No local journal. Old portable folders and external Windows policies remain unverified.'}
+ }
+ try{Assert-RecoveryJournal $journal}catch{
+  return [pscustomobject]@{Code='BLOCKED_INVALID_JOURNAL';Reason='The journal is malformed or unsupported. Keep original bytes.'}
+ }
+ if([int]$journal.version -lt 7){
+  return [pscustomobject]@{Code='BLOCKED_LEGACY_OWNER';Reason='Legacy owner comments are not unique deletion authority.'}
+ }
+ if(@(Pending-NrptRecords $journal).Count -gt 0 -or @($journal.pendingRoutes|Where-Object{$_}).Count -gt 0){
+  return [pscustomobject]@{Code='BLOCKED_PENDING';Reason='Unfinished operations must be reconciled before migration.'}
+ }
+ if(@(Route-Records $journal).Count -gt 0 -or @($journal.rules).Count -gt 0){
+  return [pscustomobject]@{Code='BLOCKED_RECORDED_OBJECTS';Reason='Recorded Windows objects require separate ownership reconciliation.'}
+ }
+ return [pscustomobject]@{Code='EMPTY_JOURNAL_REVIEW';Reason='No recorded objects; this does not prove Windows is clean or authorize migration.'}
+}
 # Read-only inspection of a saved journal against Windows snapshots.
 # No route or DNS mutation is performed. Do not mistake a matching snapshot
 # for proof of application-level traffic isolation.
@@ -701,6 +721,12 @@ try {
    Write-Output 'No changes were made. Preserve configuration files; do not delete network rules without verifying ownership.'
   }
   # This diagnostic remains available when Windows NRPT/route inventory fails.
+  # Always report the migration gate, even if Windows policy inventory fails.
+  try{$migration=Get-JournalMigrationGate (State)}catch{
+   $migration=[pscustomobject]@{Code='BLOCKED_UNREADABLE';Reason='Cannot read the portable journal. Preserve the original file.'}
+  }
+  Write-Output ('Privileged-journal migration gate: '+$migration.Code)
+  Write-Output $migration.Reason
   $trust=Get-PrivilegedStoreHealth
   Write-Output ('Future privileged journal store: '+$trust.Code)
   Write-Output $trust.Reason
