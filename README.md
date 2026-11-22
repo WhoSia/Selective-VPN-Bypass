@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-23 KST):** [Windows portable: worker-result validation, 3× GUI regression and read-only migration gate](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45056497157) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · ZIP SHA-256 `C805C1A90BFEBFE16DF4869A83639C9BED58E541BB7266DEF55F23E88E5FE425`. PowerShell journal/migration tests, all 3 independently isolated WinForms interaction trials, Go unit/security tests, Windows x64 compile and artifact upload PASS. [Isolated Windows NRPT/route integration](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45056497117) PASS. This does not establish authenticated privileged journal authority, full crash safety, or live SoftEther behavior.
+**Latest verified CI package (2026-11-23 KST):** [Windows portable: redacted recovery support summary and corrected ACL readiness diagnostics](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45057250008) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · ZIP SHA-256 `8089EF14EFD396B86053D723B2B3F7E6694161915EFFD033008D421B6F620C69`. PowerShell redaction and ACL rights/denied-metadata regressions, all three isolated GUI interaction trials, Go build/tests, and ZIP upload PASS. [Isolated Windows NRPT/route recovery](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45057249979) PASS. This does not establish authenticated elevated journal authority, cross-account UAC success, or live SoftEther routing.
 
 ## Features
 
