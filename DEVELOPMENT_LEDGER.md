@@ -402,6 +402,15 @@
 - **문서:** [README.md](README.md) 안전성 경계와 [Build Actions `44967787678`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44967787678) 최신 Portable 링크 동기화. 기존 main 중심 운영을 유지하고, 소스 커밋 작성자·커미터 WhoSia로 설정, Actions[bot] 소스 커밋 없음.
 - **후속 게이트:** 복구 저널의 신뢰/권한 분리와 타 Windows 세션 소유권 경계, 동일 tuple 라우트의 출처 불명 문제에 대한 보수적 정책, 실제 VM fault-injection test의 다중 인스턴스 시나리오.
 
+## 2026-11-22 — Restore 전 대상 검증 및 사후 재관측 [COMMITTED / CI PASS]
+
+- **문제 근거:** `Restore-Own`이 NRPT부터 삭제하고 마지막에 IPv4 라우트 후보의 모호성을 알 수 있어, 뒤쪽 충돌 때문에 앞쪽 정책만 지워진 부분 복구 상태가 발생할 수 있었다. 첨부 독립 Claude 리뷰는 코드 미확인이라는 한계를 명시했으므로, 본 결함은 직접 확인한 `src/Core.ps1` 실행 순서로 따로 판정했다.
+- [`ef165a3`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/ef165a3010c2b261bc3cbfa903d173807fc6502a) — `Get-RestorePreflight` 추가. 실제 삭제 전 저널 구조, 완료된 NRPT Name/Comment, 미완료 NRPT namespace·DNS·owner, 모든 기록 라우트의 단일 일치 후보와 인터페이스를 읽기 전용 검사. 발견한 모호성은 전체 삭제 시작을 차단한다. 삭제 직전에 객체를 재조회하고, 삭제 이후 같은 preflight를 다시 실행해 잔여 객체가 확인되거나 관측 실패 시 저널을 보존한다. 네트워크 설정의 **원자성은 보장하지 않는다**.
+- [`c055242`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/c0552424612139eb76525dd2e26da5250908b1d1) — 두 회귀 테스트 추가. (1) 선행 NRPT와 후행 중복 라우트를 함께 둬 **preflight 단계에서 아무 삭제도 수행하지 않음**을 확인. (2) Remove cmdlet이 성공을 반환하지만 NRPT가 남는 모의 상태에서 **postcondition 실패 및 저널 보존**을 확인. 기존 mock은 실제 삭제 시 객체 목록도 제거하도록 수정하여 사후 관측을 반영.
+- **검증:** [Windows Portable Actions `44970319662`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44970319662) 전체 PASS. 로그에 `Restore all-object preflight PASS: late route ambiguity prevents earlier DNS deletion.` 및 `Restore postcondition PASS: API-reported success but OS rule remains keeps journal.` 확인. PowerShell/GUI/Go/Windows x64 빌드 및 ZIP 아티팩트 업로드 PASS. 이름 `SelectiveVPNBypass-Portable-Windows-x64`, artifact ID `14733004938`, 내부 ZIP SHA-256 `0b221170f754422dfb986dfdbc5ac9f0367d3179bda1b5c86f30a81f010c9fed`. 격리 Windows 네트워크 복구 [`44970319639`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44970319639) PASS.
+- **잔여 위험과 설계 선택:** 현재는 첫 preflight에서 개별 위험 항목이 발견되면 나머지 독립 정책도 건드리지 않는 전체 차단 정책이다. 이는 초기 부분 삭제를 줄이지만 회복 가능한 항목까지 정리하지 못하는 tradeoff가 있다. 삭제 중 동시 외부 변경/크래시/디스크 실패는 여전히 부분 상태를 남길 수 있다. 추가 `Get-RestorePreflight` 사후 검증은 관측된 부재를 확인하지만, 재생성되는 객체나 레거시 저널 위조를 완전히 방어하지 않는다. 관리자 전용 인증된 저널과 항목별 종료 상태 기록은 후속 단계.
+- **운영:** GitHub main 직접 변경, WhoSia 명의 작성. Actions 봇의 소스 커밋 없음. README의 최신 다운로드 링크와 안정성 경계를 동기화.
+
 ## 이후 기록 템플릿
 
 ```markdown
