@@ -10,7 +10,7 @@ A lightweight **portable Windows companion for SoftEther VPN Client**, developed
 
 **Code → Download ZIP** is the source ZIP. It is not an executable distribution. Tagged GitHub Releases will be published manually by **WhoSia** after testing—not by GitHub Actions bots.
 
-**Latest verified CI package (2026-11-22 KST):** [Windows portable: Restore preflight and observed postconditions](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44970319662) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · inside ZIP SHA-256 `0b221170f754422dfb986dfdbc5ac9f0367d3179bda1b5c86f30a81f010c9fed`. Windows PowerShell all-object preflight and postcondition tests, existing NRPT/route/GUI regressions, Go x64 build and upload PASS. [Isolated Windows NRPT/route integration](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44970319639) PASS. Not an atomic network transaction or guarantee for live VPN traffic.
+**Latest verified CI package (2026-11-22 KST):** [Windows portable: item-level Restore completion and reboot convergence](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44971175149) · artifact `SelectiveVPNBypass-Portable-Windows-x64` · inside ZIP SHA-256 `6be4c84a59469f2384bebcf94500ccd518214d563ade4738f71b5e90d0da9b47`. PowerShell completion/retry/reboot and journal-validation tests, GUI regression, Go x64 build and upload PASS. [Isolated Windows NRPT/route integration](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/44971175123) PASS. No guarantee of power-loss durability, authenticated journal provenance or atomic network cleanup.
 
 ## Features
 
@@ -76,6 +76,16 @@ Before deleting any recorded Windows objects, Restore now performs a **read-only
 During deletion, each candidate is queried again before its corresponding operation. After the deletion attempts, the same reconciliation checks run again; a journal is cleared only when no recorded objects remain observable and no errors occurred. If any error occurs, the journal stays for inspection and a later recovery attempt.
 
 This **does not provide atomicity**: changes can still occur between checks, an operation can fail after earlier deletions, and a crash can leave an incomplete journal. The current implementation intentionally blocks all deletions when an ambiguous candidate is found during the first preflight; an alternative per-item cleanup policy needs separate design and tests. State files remain user-writable, and structural validation does not authenticate their origin.
+
+## Per-item recovery completion and reboot behavior
+
+After an OS object is verified absent during Restore, the recovery journal now records terminal progress in optional `restoreDoneRules`, `restoreDoneIntents` and `restoreDoneRoutes` arrays. Existing v6/v7 journals remain readable. On a later Restore, terminal entries are not treated as a new removal instruction; this reduces the chance of deleting a replacement with the same Windows rule identity. The read-only Inspector reports `RESTORE_PARTIAL` and the recorded completed count while unresolved work remains.
+
+An ActiveStore route may disappear after restart. If the recorded tuple is genuinely absent, Restore may converge without deleting a new route, even if the old adapter index is no longer current. If a recorded route is still present but the adapter has changed, Restore refuses to guess. The route's creator is still not cryptographically provable.
+
+**This is not crash-proof atomicity.** There remains a window after an OS object disappears but before its completed-state write is durable. Moreover, terminal records are stored in user-writable JSON: schema validation checks their shape and membership, not their authenticity. Do not manually alter these records to force cleanup.
+
+For the next trust-boundary milestone, see [Privileged Recovery Journal Trust Boundary — Design Gate](SECURITY_BOUNDARY_PLAN_2026-11-22.md). This document is a **proposal**, not a deployed administrator-protected journal store or migration.
 
 ## Verification and development history
 
