@@ -214,7 +214,7 @@ function Get-FailureGuidance([string]$details,[int]$nativeErrorCode=0) {
  if($details -match '(?i)recovery journal|invalid.*owner identity|unsupported.*schema|malformed.*configuration'){
   return '[JOURNAL_INVALID] Recovery records are unreadable or incompatible. Preserve their original bytes and run Inspect.'
  }
- if($details -match '(?i)ambiguous|unmanaged route|existing NRPT policy|ownership.*mismatch|another network operation'){
+ if($details -match '(?i)ambiguous|duplicate matching route|unmanaged route|existing NRPT policy|ownership.*mismatch|another network operation'){
   return '[OWNERSHIP_CONFLICT] Existing Windows objects or another operation prevent a safe change. Inspect before retrying.'
  }
  if($details -match '(?i)adapter is not connected|default IPv4 route missing|cannot determine Wi-Fi gateway|no Wi-Fi DNS configured'){
@@ -360,7 +360,7 @@ $other[1][3].Add_Click({
   $dialog.Filter='JSON backup (*.json)|*.json'
   $dialog.DefaultExt='json'
   $dialog.FileName='SelectiveVPNBypass-Targets-'+[DateTime]::Now.ToString('yyyyMMdd-HHmmss')+'.json'
-  $dialog.OverwritePrompt=$true
+  $dialog.OverwritePrompt=$false # CreateNew never overwrites; an occupied filename produces a clear error.
   try{
    if($dialog.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK){return}
    # No silent overwrite even if the dialog was confirmed.
