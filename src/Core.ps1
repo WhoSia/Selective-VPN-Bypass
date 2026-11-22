@@ -194,6 +194,10 @@ function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
  $rules=@($journal.rules|Where-Object{$_})
  $pending=@(Pending-NrptRecords $journal)
  $routes=@(Route-Records $journal)
+ $doneRules=@($journal.restoreDoneRules)
+ $doneIntents=@($journal.restoreDoneIntents)
+ $doneRoutes=@($journal.restoreDoneRoutes)
+ $doneCount=@($doneRules|Where-Object{$_}).Count+@($doneIntents|Where-Object{$_}).Count+@($doneRoutes|Where-Object{$_}).Count
  if($null -eq $journal.version -or $null -eq $journal.wifiIndex -or
     $null -eq $journal.rules -or $null -eq $journal.routes){
   return [pscustomobject]@{Code='UNKNOWN';Reason='Unrecognized or incomplete journal schema. Do not overwrite it.';Rules=$rules.Count;Routes=$routes.Count}
@@ -204,27 +208,34 @@ function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
  $expectedComment=Get-JournalOwnerComment $journal
  $conflict=0;$missing=0;$unresolved=0
  foreach($ruleName in $rules){
+  if($doneRules -ccontains ([string]$ruleName)){continue}
   $found=@($nrptRules|Where-Object{[string]$_.Name -ceq [string]$ruleName})
   if($found.Count -gt 1){$conflict++;continue}
   if($found.Count -eq 0){$missing++;continue}
   if([string]$found[0].Comment -cne $expectedComment){$conflict++}
  }
  foreach($intent in $pending){
+  if($doneIntents -ccontains ([string]$intent.namespace)){continue}
   $matched=@($nrptRules|Where-Object{@($_.Namespace) -contains [string]$intent.namespace})
   if($matched.Count -gt 1){$conflict++;continue}
   if($matched.Count -eq 0){$unresolved++;continue}
   if(-not (Test-CompatibleOwnedNrpt $matched[0] ([string]$intent.namespace) @($intent.servers) $expectedComment)){$conflict++}
  }
  foreach($record in $routes){
+  if($doneRoutes -ccontains (Get-RestoreRouteKey $record ([int]$journal.wifiIndex))){continue}
   $prefixMatches=@($ipv4Routes|Where-Object{[string]$_.DestinationPrefix -eq [string]$record.prefix})
   $matching=@($prefixMatches|Where-Object{Test-ManagedRouteMatch $_ $record ([int]$journal.wifiIndex)})
   if($matching.Count -eq 0){$missing++;continue}
   if($matching.Count -gt 1 -or $prefixMatches.Count -ne $matching.Count){$conflict++}
  }
- $pendingCount=@($journal.pendingRoutes|Where-Object{$_}).Count+$pending.Count
+ $pendingCount=@($journal.pendingRoutes|Where-Object{$_ -and $doneRoutes -cnotcontains (Get-RestoreRouteKey $_ ([int]$journal.wifiIndex))}).Count + @($pending|Where-Object{$doneIntents -cnotcontains ([string]$_.namespace)}).Count
  $code='MATCHED_SNAPSHOT'
  $reason='Recorded objects match this snapshot. Actual browser traffic has not been verified.'
- if($pendingCount -gt 0 -or $unresolved -gt 0){
+ if($doneCount -gt 0){
+  $code='RESTORE_PARTIAL'
+  $reason='Confirmed completed cleanup items are journaled, but other records still require inspection or completion.'
+ }
+ if(($pendingCount -gt 0 -or $unresolved -gt 0) -and $doneCount -eq 0){
   $code='INCOMPLETE'
   $reason='Unfinished journal entries exist. Inspect before reapplying or moving files.'
  }
@@ -238,7 +249,7 @@ function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
  }
  return [pscustomobject]@{
   Code=$code;Reason=$reason;Rules=$rules.Count+$pending.Count;Routes=$routes.Count;
-  Missing=$missing;Conflicts=$conflict;Pending=$pendingCount
+  Missing=$missing;Conflicts=$conflict;Pending=$pendingCount;Completed=$doneCount
  }
 }
 # Read-only health checks: never normalize a malformed file by overwriting it.
