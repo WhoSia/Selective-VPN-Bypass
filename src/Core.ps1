@@ -337,6 +337,45 @@ function Inspect-JournalSnapshot($journal,$nrptRules,$ipv4Routes) {
   Missing=$missing;Conflicts=$conflict;Pending=$pendingCount;Completed=$doneCount
  }
 }
+# Compact report deliberately omits journal bytes, target hostnames, route
+# addresses, Windows usernames, paths and policy identifiers. It describes
+# observations only and cannot certify restored connectivity.
+function Get-RedactedDiagnosticSummary($report,[string]$configCode,[string]$migrationCode,[string]$storeCode,[int]$unattributedCount=0) {
+ $safeStatus=@('NO_JOURNAL','UNKNOWN','MATCHED_SNAPSHOT','INCOMPLETE','RESTORE_PARTIAL','MISMATCH','CONFLICT')
+ $safeConfig=@('ABSENT','OK','INVALID')
+ $safeMigration=@('NO_LOCAL_JOURNAL','BLOCKED_INVALID_JOURNAL','BLOCKED_LEGACY_OWNER','BLOCKED_PENDING','BLOCKED_RECORDED_OBJECTS','EMPTY_JOURNAL_REVIEW','BLOCKED_UNREADABLE')
+ $safeStore=@('NOT_CONFIGURED','UNKNOWN','UNSAFE_PATH','REPARSE_POINT','BROAD_WRITE_ACE','ACL_UNVERIFIED')
+ $observed=if($report.Code -in $safeStatus){[string]$report.Code}else{'UNKNOWN'}
+ $config=if($configCode -in $safeConfig){$configCode}else{'INVALID'}
+ $migration=if($migrationCode -in $safeMigration){$migrationCode}else{'BLOCKED_UNREADABLE'}
+ $store=if($storeCode -in $safeStore){$storeCode}else{'UNKNOWN'}
+ $counts=[ordered]@{}
+ foreach($name in @('Rules','Routes','Missing','Conflicts','Pending','Completed')){
+  $value=0
+  try{
+   if($null -ne $report.PSObject.Properties[$name]){
+    $raw=[string]$report.$name
+    if(-not [int]::TryParse($raw,[ref]$value) -or $value -lt 0){$value=0}
+   }
+  }catch{$value=0}
+  $counts[$name]=$value
+ }
+ return [pscustomobject]@{
+  Format='SVB-DIAG-v1'
+  Journal=$observed
+  SavedList=$config
+  Migration=$migration
+  Store=$store
+  Unattributed=[Math]::Max(0,$unattributedCount)
+  Rules=$counts.Rules
+  Routes=$counts.Routes
+  Missing=$counts.Missing
+  Conflicts=$counts.Conflicts
+  Pending=$counts.Pending
+  Completed=$counts.Completed
+  VerifiedTraffic=$false
+ }
+}
 # Read-only health checks: never normalize a malformed file by overwriting it.
 function Get-ConfigHealth {
  if(-not (Test-Path -LiteralPath $ConfigPath)){return 'ABSENT'}
@@ -731,6 +770,18 @@ try {
   Write-Output ('Future privileged journal store: '+$trust.Code)
   Write-Output $trust.Reason
   Write-Output 'ACL observations are not proof of an authenticated recovery journal.'
+  # Diagnostic status is redacted and safe to copy to a support ticket.
+  # Recalculate from the same read-only data when possible; do not print
+  # raw journal content or personally identifying network targets.
+  try{
+   if($null -eq $report){$report=[pscustomobject]@{Code='UNKNOWN'}}
+   if($null -eq $configHealth){$configHealth=Get-ConfigHealth}
+   $summary=Get-RedactedDiagnosticSummary $report $configHealth $migration.Code $trust.Code $unattributed.Count
+   Write-Output ('Redacted support summary: '+($summary|ConvertTo-Json -Compress -Depth 3))
+  }catch{
+   Write-Warning 'Redacted support summary unavailable. No system settings were changed.'
+  }
+
   break
  }
  'restore'{Require-Admin;Restore-Own;break}
