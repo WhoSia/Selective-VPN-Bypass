@@ -98,6 +98,14 @@ The **Inspect** action now also reports the state of a **future** administrator-
 
 This report remains available when the Windows network inspection cannot complete. No status authenticates the **existing user-editable** portable recovery journal. The separate [privileged journal boundary plan](SECURITY_BOUNDARY_PLAN_2026-11-22.md) remains proposed, not installed or migrated.
 
+## Defensive UX improvements: diagnostics and saved-list backup
+
+The GUI now classifies several common failures with **advisory codes**, including `UAC_CANCELLED`, `LOG_UNAVAILABLE`, `JOURNAL_INVALID`, `OWNERSHIP_CONFLICT`, `NETWORK_UNAVAILABLE`, and `WORKER_FAILED`. The output explains an appropriate next check rather than implying that an interrupted operation was automatically rolled back. Classification is heuristic; inspect actual Windows state before assuming recovery.
+
+The **Backup** button creates a user-selected JSON file containing only the **saved desired exceptions** in the format `SelectiveVPNBypass.TargetsBackup.v1`. It deliberately does **not** export the route/NRPT recovery journal, operation owner IDs, DNS policy objects or system routes. It uses exclusive new-file creation to avoid overwriting an existing file. Save the backup somewhere private because it may include sensitive domain names or IPv4 addresses. **Automatic import is not provided** in this release; copying a backup directly over an active configuration or recovery journal is unsafe.
+
+The elevated Go worker now opens only a fresh result log under its process temporary directory, using an exclusive file handle and capturing PowerShell output through the Go process instead of letting elevated PowerShell reopen the log destination. A pre-existing filename is refused. Note that alternate administrator-account UAC elevation can use a different temporary directory and may require an explicit future cross-account logging design. This hardening limits accidental overwrite; it does not fully establish the authenticity of the user-writable journal or eliminate all filesystem redirection races.
+
 ## Verification and development history
 
 The build workflow runs syntax, exception-list, and noninteractive GUI initialization checks before compiling the portable ZIP. These checks do **not** replace actual Windows DPI, button interaction, VPN connection, or route rollback testing.
