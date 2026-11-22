@@ -116,6 +116,29 @@ try {
   if(@(Route-Records $legacy).Count -ne 1){throw 'Legacy state without pendingRoutes is not handled'}
   Write-Host 'Route journal tests PASS: pending/crash, dedupe, legacy, strict route tuple.'
 
+  # Validation must reject malformed or overbroad journal records before an
+  # elevated restore begins. Legacy valid v5 records remain acceptable.
+  $safeJournal=[pscustomobject]@{
+    version=5;wifiIndex=9;routes=@($rec);pendingRoutes=@();rules=@()
+  }
+  Assert-RecoveryJournal $safeJournal
+  $invalidCases=@(
+    [pscustomobject]@{version=5;wifiIndex=9;routes=@([pscustomobject]@{prefix='0.0.0.0/0';gateway='192.0.2.1'});pendingRoutes=@();rules=@()},
+    [pscustomobject]@{version=5;wifiIndex=9;routes=@([pscustomobject]@{prefix='192.0.2.10/32';gateway='not-an-ip'});pendingRoutes=@();rules=@()},
+    [pscustomobject]@{version=7;wifiIndex=9;routes=@();pendingRoutes=@();rules=@()},
+    [pscustomobject]@{version=400;wifiIndex=9;routes=@();pendingRoutes=@();rules=@()},
+    [pscustomobject]@{version=5;wifiIndex=-1;routes=@();pendingRoutes=@();rules=@()}
+  )
+  foreach($candidate in $invalidCases){
+    $rejected=$false
+    try{Assert-RecoveryJournal $candidate}catch{$rejected=$true}
+    if(-not $rejected){throw 'A malformed or overbroad recovery journal was accepted'}
+    $classification=Inspect-JournalSnapshot $candidate @() @()
+    if($classification.Code -ne 'UNKNOWN'){throw 'Inspector treated malformed journal as valid'}
+  }
+  Write-Host 'Recovery journal structural fail-closed PASS: legacy valid, invalid version/owner/interface/route.'
+
+
   # A separate PowerShell process must not acquire the same named mutex.
   $lock=Enter-ConfigLock
   try{
