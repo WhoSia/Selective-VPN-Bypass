@@ -467,6 +467,22 @@
 - **운영:** main 브랜치에 WhoSia 작성자·커미터 직접 커밋, GitHub Actions 봇 소스 커밋 금지. 이전 복구 저널을 자동 이관·삭제하거나 사용자 PC 네트워크 설정을 변경하지 않았음.
 - **다음 우선순위 판정:** (P0) 관리자만 쓸 수 있는 권위 저널의 비파괴 VM 프로토타입·구형 저널 마이그레이션; (P1) 실제 사용자/관리자 계정 분리 UAC와 GUI 실패 상황을 재현·계측; (P1) 강제 종료 위치별 v8 journal convergence; (P2) 복구·진단 프라이버시 기반 내보내기. 새 우회·라우트 모드는 유보.
 
+## 2026-11-23 — GUI lifecycle reliability, worker-result honesty and legacy migration read-only gate [MAIN / WINDOWS CI PASS]
+
+- **개발 범위 및 우선순위:** 이전 감사에서 관측된 GUI 완료 화면의 간헐적 `Running apply ...` 잔류를 재현 가능한 테스트 대상으로 지정하고, 결과 로그/프로세스 종료의 불일치에 대한 사용자 오인을 줄임. 다음 관리자 신뢰 경계 구축 전 read-only 이관 차단 게이트를 추가. 신규 우회 모드 또는 Windows 네트워크 설정 변경 범위 확장은 하지 않음.
+- [`c3296a7`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/c3296a72ba2e164905dacfc624ab3b43367d6e69): Go/PowerShell worker 프로세스 종료코드 0만으로 GUI Add 입력을 지우지 않고, **결과 로그가 읽힌 경우에만** `Completed` 및 입력 초기화를 수행.
+- [`ee372b5`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/ee372b52e54ba7600e90cde6fc65149520337efe): exit 0이지만 결과 파일이 없는 모의 Worker에 대해 `NO_RESULT_LOG` 실패 판정 회귀 추가.
+- [`2f6fd7d`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/2f6fd7d18e42f65b684c965f4eb6baf23861796a): GUI `Run-Action` 성공 시작 횟수·타이머에서 완료한 횟수를 테스트 오류 메시지에 반영하고, 모의 Apply 클릭 후 새 프로세스가 실제로 시작됐는지 검증. Worker's progress label이 그대로인데 idle로 판정되면 명시적 오류 보고. **기존 간헐적 실패를 근본 해결했다고 주장하지 않음**.
+- [`d4a6fe0`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/d4a6fe0f3fd3228a28e3282260921fbc3eede02a): Windows Actions의 GUI interaction 테스트를 각기 다른 temp 디렉터리에서 **3회 반복**해 타이밍 이슈 노출 강화.
+- [`0252b3e`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/0252b3ec3a715bc2b8eee16d9096cbca3d07f380): exit 0이면서 결과 로그가 공백/빈 문자열인 경우에도 `EMPTY_RESULT_LOG` 판정, 실패 안내 및 Add 입력 보존. 빈 로그 모의 실행 테스트 추가. Worker 성공 문구와 실제 OS 상태 확인을 혼동하지 않음.
+- [`69fe236`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/69fe23642af508886d697ef70a1cf2d7c04fb0af): `Get-JournalMigrationGate` read-only 분류 도입. `NO_LOCAL_JOURNAL`, `BLOCKED_INVALID_JOURNAL`, `BLOCKED_LEGACY_OWNER`, `BLOCKED_PENDING`, `BLOCKED_RECORDED_OBJECTS`, `EMPTY_JOURNAL_REVIEW` 상태 및 읽기 실패 시 `BLOCKED_UNREADABLE`. Windows NRPT/route 조회 오류가 발생해도 별도 이관 제약 안내를 출력. 어떤 상태도 **자동으로 관리자 권위 저널 이관을 허가하지 않음**.
+- [`9db1ba1`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/9db1ba11c155a0f0852a5c5e7cded7f56bad6c58): 구형·신형 저널, 미완료 작업, 기록 객체, 손상 구조, 비어 있는 저널을 포함한 6가지 migration gate 회귀 테스트 추가. 파일 또는 Windows 네트워크 설정 변경 없이 완료됨을 수락 조건으로 명시.
+- **문서화:** [`cf53067`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/cf53067d1e1621b21d758515f6494b99865f70b4) README 비파괴 진단/GUI 동작 설명 추가, [`bd82475`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/bd82475fe776d06f339cdeb3c28f64b961a0e77b) 독립적 자체 감사의 맹점/우선순위 재검토. [`cc0509e`](https://github.com/WhoSia/Selective-VPN-Bypass/commit/cc0509e4dfc98fc01c453b0cefc15443daab2eb6) 최신 검증 빌드 링크 갱신.
+- **수락 테스트:** [Windows Portable Actions `45056497157`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45056497157), 마지막 코드 HEAD `9db1ba11c155a0f0852a5c5e7cded7f56bad6c58`: PowerShell 회귀, `Privileged journal migration gate PASS`, 독립 temp 폴더 **GUI interaction trial 1·2·3 각각 PASS**, Go unit tests, Windows x64 컴파일, ZIP 아티팩트 업로드 전체 SUCCESS. Artifact `SelectiveVPNBypass-Portable-Windows-x64`, ID `14766844107`, ZIP SHA-256 `C805C1A90BFEBFE16DF4869A83639C9BED58E541BB7266DEF55F23E88E5FE425`. [격리 Windows NRPT/route 복구 `45056497117`](https://github.com/WhoSia/Selective-VPN-Bypass/actions/runs/45056497117) SUCCESS.
+- **확인 가능한 미해결:** GUI 간헐적 완료 지연은 3회 테스트 모두 성공했지만 실제 원인은 재현·입증하지 못함. 관리자 권위 저널 보호(ACL/서명·경로 및 구형 이관), 별도 관리자 계정 UAC/TEMP 전달, 강제종료·전원 손실 직후 OS와 저널의 수렴성, 인터넷/IPv6/DoH 애플리케이션 단위 검증은 해결되지 않음. `Get-JournalMigrationGate`는 판정만 제공하며 생성/이관/삭제를 실행하지 않음.
+- **운영:** main에서 직접 변경 및 WhoSia Author/Committer 사용, GitHub Actions[bot] 소스 커밋 없음. 이번에 사용자 PC의 실제 네트워크 정책을 변경하지 않음. 브랜치 추가 없음.
+- **후속 우선순위 판단:** P0—관리자 권위 저장소 설계·격리 VM ACL 수락 테스트 및 구형 저널 비파괴 마이그레이션; P1—GUI 완료 타이밍의 상호작용·로그·프로세스 실기 추적, 다중 관리자 계정의 UAC, 중간 종료 뒤 OS/저널 검증; P2—정보 누출 최소화된 진단 보고서. 새 우회 기능 추가보다는 검증이 우선.
+
 ## 이후 기록 템플릿
 
 ```markdown
