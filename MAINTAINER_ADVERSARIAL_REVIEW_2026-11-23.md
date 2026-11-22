@@ -46,3 +46,21 @@
 **Not ready for unrestricted/general distribution.** Existing Windows regression and isolated-runner tests support narrow recovery properties. They do not cover the full UAC/ACL boundary, all concurrent Windows sessions, crash/power-loss windows, the complete Restore transaction, or application-level traffic verification. A tagged NRPT comment and valid schema are not credentials. Prioritizing more bypass targets or additional route modes before these gaps are addressed would increase the attack surface without addressing core user risk.
 
 **Review status:** maintainer self-challenge; do not treat it as an external Claude/Gemini audit. Independent review and disposable-VM acceptance remain necessary.
+
+## 2026-11-23 follow-up challenge: GUI lifecycle and migration read-only gate
+
+The next development unit focused on previously observed GUI timing uncertainty rather than adding more routing actions:
+
+- A successful worker exit without a readable, nonempty result log is now reported as **unverified**, and a user's Add text is not erased merely because the exit code is zero. This is an improvement in result reporting, not evidence that an OS operation really completed.
+- New GUI test paths simulate both a missing log and an empty log; CI executes the interaction suite three times in independent temporary directories. This increases exposure to rare timing issues but **does not establish the root cause** of the historical `Running apply ...` failure. Worker start/finish counters were added to test failure messages, not exported as user telemetry.
+- The new `Get-JournalMigrationGate` provides refusal categories in read-only Inspect: malformed journal, legacy owner, outstanding intents and recorded OS objects. It explicitly **does not** create a ProgramData store, move a legacy JSON or authorize cleanup.
+
+### Independent assessment of what remains unproven
+
+1. **Release blocker remains:** elevated Restore trusts unprivileged Portable journal bytes. Migration classification detects some unsafe states but does not establish secure authority or solve legacy ownership.
+2. **Different-account UAC remains untested:** elevated TEMP and log transport can differ from the GUI account. Test with a real separately credentialed administrator in a disposable Windows VM, not a GitHub runner running as its own admin.
+3. **The GUI's background worker lifecycle remains best-effort:** polling-based completion and WinForms event processing may exhibit reentrancy or timing races. A three-run offline test does not replace interactive close/cancel/timeout and forced-kill scenarios.
+4. **A readable nonempty success log is still only a worker assertion:** it is not a cryptographic result or verified browser routing. Real Windows NRPT and route inspections must remain separate from user-visible completion notices.
+5. **Data provenance and privacy:** Diagnostics, backups and snapshots can expose sensitive hostnames or network information. Any future 'share report' functionality must default to redaction and must not silently include recovery journal contents.
+
+**Decision:** Continue the P0 privileged-authority design in an isolated environment; prioritize actual GUI/UAC lifecycle and fail-injection evidence next. Defer automatic legacy imports and new routing modes. This is a maintainer self-review, not an external audit.
