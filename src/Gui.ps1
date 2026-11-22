@@ -271,13 +271,17 @@ $script:actionTimer.Add_Tick({
       return
     }
     $exitCode=$script:activeProcess.ExitCode
-    if($script:activeAction -eq "add" -and $exitCode -eq 0 -and $null -ne $script:pendingAddText){
-      if($entry.Text -ceq $script:pendingAddText){$entry.Clear()}
-    }
     if(Test-Path -LiteralPath $script:activeLogPath){
       $output=Get-Content -LiteralPath $script:activeLogPath -Raw -Encoding UTF8 -ErrorAction Stop
-      if($exitCode -eq 0){$log.Text="Completed: $($script:activeAction)"+[Environment]::NewLine+$output}
-      else{$log.Text="FAILED: $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+(Get-FailureGuidance $output)+[Environment]::NewLine+$output}
+      if($exitCode -eq 0){
+        $log.Text="Completed: $($script:activeAction)"+[Environment]::NewLine+$output
+        # Only acknowledge Add after both worker success and readable log.
+        # Never erase a user's input on a missing/unreadable result.
+        if($script:activeAction -eq 'add' -and $null -ne $script:pendingAddText -and
+           $entry.Text -ceq $script:pendingAddText){$entry.Clear()}
+      }else{
+        $log.Text="FAILED: $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+(Get-FailureGuidance $output)+[Environment]::NewLine+$output
+      }
     }else{$log.Text="FAILED: No result log for $($script:activeAction) (exit $exitCode)"+[Environment]::NewLine+"[NO_RESULT_LOG] The helper exited without a readable result. It may have failed before creating its log; check the Windows TEMP directory and run Inspect before retrying."}
   }catch{
     $log.Text="Worker completion error: $($_.Exception.Message)"
