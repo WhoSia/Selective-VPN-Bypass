@@ -481,9 +481,13 @@ function Get-RestorePreflight($st) {
  $doneRules=@($st.restoreDoneRules)
  $doneIntents=@($st.restoreDoneIntents)
  $doneRoutes=@($st.restoreDoneRoutes)
- foreach($name in $known){
-  if($doneRules -ccontains [string]$name){continue}
-  $r=@(Get-DnsClientNrptRule -ErrorAction Stop | Where-Object { [string]$_.Name -ceq [string]$name })
+ # Read Windows NRPT once for preflight instead of repeating a system query
+ # for each saved rule. Restore still re-queries each object before mutation.
+ $activeKnown=@($known|Where-Object{$doneRules -cnotcontains ([string]$_)})
+ $nrptSnapshot=@()
+ if($activeKnown.Count -gt 0){$nrptSnapshot=@(Get-DnsClientNrptRule -ErrorAction Stop)}
+ foreach($name in $activeKnown){
+  $r=@($nrptSnapshot | Where-Object { [string]$_.Name -ceq [string]$name })
   if($r.Count -eq 0){continue}
   if($r.Count -ne 1 -or -not (Test-CommittedNrptIdentity $r[0] $st ([string]$name))){
    throw "Preflight: recorded NRPT identity is ambiguous or mismatched."
