@@ -126,6 +126,14 @@ Windows CI runs the GUI interaction test **three times in separate temporary fol
 
 Inspect also reports a **read-only privileged-journal migration gate**. Possible labels are `NO_LOCAL_JOURNAL`, `BLOCKED_INVALID_JOURNAL`, `BLOCKED_LEGACY_OWNER`, `BLOCKED_PENDING`, `BLOCKED_RECORDED_OBJECTS`, `EMPTY_JOURNAL_REVIEW`, and `BLOCKED_UNREADABLE`. Even `EMPTY_JOURNAL_REVIEW` is **not permission to migrate**: other Windows objects and Portable folders may still exist. The software does not create the future privileged directory, elevate journal authority, copy legacy files or modify Windows network policies during this classification.
 
+## Redacted support summary and ACL diagnostics
+
+The read-only **Inspect** action now prints a single `Redacted support summary:` JSON line in the format `SVB-DIAG-v1`. It contains fixed status codes and integer counts for journaled DNS policies, IPv4 routes, unresolved objects and completed cleanup work; it includes **no configured domain names, IP addresses, usernames, filesystem paths, raw journal bytes, or owner UUIDs**. Its `VerifiedTraffic` field is always `false`: this is a diagnostic snapshot, not proof of what a browser or another program actually did.
+
+The privileged-store ACL readiness check now tests only the rights relevant to **writing, deleting, or altering permissions**. A read-only `Users` grant should not be classified as a broad-write grant just because composite `FullControl` or `Modify` enumeration values contain read bits. This is still a limited ACL warning heuristic, not effective-access verification, handle-bound path validation, or authentication of the existing portable journal.
+
+For GUI operations, `NO_RESULT_LOG` explains that a separately credentialed administrator may have a different TEMP directory. The reason is a **possibility**, not a confirmed diagnosis; the software does not automatically copy privileged logs into other accounts or treat missing logs as success.
+
 ## Verification and development history
 
 The build workflow runs syntax, exception-list, and noninteractive GUI initialization checks before compiling the portable ZIP. These checks do **not** replace actual Windows DPI, button interaction, VPN connection, or route rollback testing.
