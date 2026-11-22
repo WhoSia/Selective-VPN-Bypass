@@ -87,6 +87,17 @@ An ActiveStore route may disappear after restart. If the recorded tuple is genui
 
 For the next trust-boundary milestone, see [Privileged Recovery Journal Trust Boundary — Design Gate](SECURITY_BOUNDARY_PLAN_2026-11-22.md). This document is a **proposal**, not a deployed administrator-protected journal store or migration.
 
+## Read-only privileged journal readiness check
+
+The **Inspect** action now also reports the state of a **future** administrator-controlled recovery journal directory under the Windows CommonApplicationData location (typically `%ProgramData%\\SelectiveVPNBypass`). This is a **non-destructive readiness check**: it does not create the directory, change ACLs, import portable journals, or touch Windows DNS/routing rules.
+
+- `NOT_CONFIGURED`: no future privileged-store directory exists. **Expected for current portable installs**; the app still uses its original portable journal.
+- `UNSAFE_PATH` or `REPARSE_POINT`: the expected storage path is not a normal directory or uses redirection. Do not treat it as an elevated authority.
+- `BROAD_WRITE_ACE`: a visible ACL rule grants broad write-like rights. This is a **review indicator**, not a complete computation of effective access.
+- `ACL_UNVERIFIED` / `UNKNOWN`: the read-only ACL scan either found no obvious broad-write entry or could not complete. Neither status proves a secure journal.
+
+This report remains available when the Windows network inspection cannot complete. No status authenticates the **existing user-editable** portable recovery journal. The separate [privileged journal boundary plan](SECURITY_BOUNDARY_PLAN_2026-11-22.md) remains proposed, not installed or migrated.
+
 ## Verification and development history
 
 The build workflow runs syntax, exception-list, and noninteractive GUI initialization checks before compiling the portable ZIP. These checks do **not** replace actual Windows DPI, button interaction, VPN connection, or route rollback testing.
