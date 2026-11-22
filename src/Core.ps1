@@ -598,7 +598,7 @@ try {
    }
    if($null -ne $state){
     Write-Output ("Recorded objects: DNS policies="+$report.Rules+" IPv4 routes="+$report.Routes)
-    Write-Output ("Unfinished="+$report.Pending+" missing="+$report.Missing+" conflicts="+$report.Conflicts)
+    Write-Output ("Completed="+$report.Completed+" unfinished="+$report.Pending+" missing="+$report.Missing+" conflicts="+$report.Conflicts)
    }
    Write-Output 'No changes were made. A matching snapshot is not proof of browser routing or site access.'
   }catch{
